@@ -8,24 +8,29 @@ const JWT_SECRET = process.env.JWT_SECRET || 'SUPER_SECRET_JWT_KEY';
 
 exports.registerUser = async (req, res) => {
   try {
-    const { emailOrPhone, password } = req.body;
+    let { emailOrPhone, password, role } = req.body;
 
-    // Simple validation
+    // Validate required fields
     if (!emailOrPhone || !password) {
       return res.status(400).json({ message: 'All fields are required.' });
     }
 
-    // Check for existing user
+    // Ensure the role is valid
+    if (!role || !['admin', 'user'].includes(role.toLowerCase())) {
+      role = 'user'; // Default role
+    }
+
+    // Check for existing user (email or phone should be unique)
     const existingUser = await User.findOne({ emailOrPhone });
     if (existingUser) {
       return res.status(400).json({ message: 'User already exists with that email/phone.' });
     }
 
-    // Create user
-    const newUser = new User({ emailOrPhone, password });
+    // Create new user with validated role
+    const newUser = new User({ emailOrPhone, password, role: role.toLowerCase() });
     await newUser.save();
 
-    // Create token
+    // Create JWT token including role information
     const token = jwt.sign({ userId: newUser._id, role: newUser.role }, JWT_SECRET, {
       expiresIn: '1h',
     });
@@ -36,14 +41,15 @@ exports.registerUser = async (req, res) => {
       user: {
         _id: newUser._id,
         emailOrPhone: newUser.emailOrPhone,
-        role: newUser.role
-      }
+        role: newUser.role,
+      },
     });
   } catch (error) {
     console.error('Error registering user:', error);
     res.status(500).json({ message: 'Server error during registration' });
   }
 };
+
 
 exports.loginUser = async (req, res) => {
   try {
