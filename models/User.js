@@ -1,5 +1,6 @@
 // server/models/User.js
 const mongoose = require('mongoose');
+const ProfileSchema = require('./Profile');
 const bcrypt = require('bcrypt');
 
 const userSchema = new mongoose.Schema({
@@ -12,12 +13,12 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
-  // If you want roles: user / admin
   role: {
     type: String,
     default: 'user', 
     enum: ['user', 'admin']
-  }
+  },
+  profiles: [ProfileSchema]
 });
 
 // Hash password before saving
