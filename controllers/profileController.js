@@ -9,15 +9,19 @@ exports.addProfile = async (req, res) => {
         const user = await User.findById(userId);
         if (!user) return res.status(404).json({ message: 'User not found' });
 
+        // Check if max profiles reached
         if (user.profiles.length >= 5) {
-            return res.status(400).json({ message: 'Max 5 profiles allowed' });
+            return res.status(400).json({ message: 'Maximum of 5 profiles allowed' });
         }
 
+        // Add new profile
         user.profiles.push({ name, avatar });
         await user.save();
+        
         res.json(user.profiles);
     } catch (error) {
-        res.status(500).json({ message: 'Error adding profile', error });
+        console.error('Error adding profile:', error);
+        res.status(500).json({ message: 'Error adding profile', error: error.message });
     }
 };
 
@@ -30,11 +34,14 @@ exports.deleteProfile = async (req, res) => {
         const user = await User.findById(userId);
         if (!user) return res.status(404).json({ message: 'User not found' });
 
+        // Filter out the profile to delete
         user.profiles = user.profiles.filter(profile => profile._id.toString() !== profileId);
         await user.save();
+        
         res.json({ message: 'Profile deleted', profiles: user.profiles });
     } catch (error) {
-        res.status(500).json({ message: 'Error deleting profile', error });
+        console.error('Error deleting profile:', error);
+        res.status(500).json({ message: 'Error deleting profile', error: error.message });
     }
 };
 
@@ -48,7 +55,8 @@ exports.getProfiles = async (req, res) => {
 
         res.json(user.profiles);
     } catch (error) {
-        res.status(500).json({ message: 'Error fetching profiles', error });
+        console.error('Error fetching profiles:', error);
+        res.status(500).json({ message: 'Error fetching profiles', error: error.message });
     }
 };
 
@@ -62,13 +70,17 @@ exports.updateProfileName = async (req, res) => {
         const user = await User.findById(userId);
         if (!user) return res.status(404).json({ message: 'User not found' });
 
-        const profile = user.profiles.find(p => p._id.toString() === profileId);
+        // Find the profile to update
+        const profile = user.profiles.id(profileId);
         if (!profile) return res.status(404).json({ message: 'Profile not found' });
 
+        // Update profile name
         profile.name = name;
         await user.save();
+        
         res.json(user.profiles);
     } catch (error) {
-        res.status(500).json({ message: 'Error updating profile', error });
+        console.error('Error updating profile name:', error);
+        res.status(500).json({ message: 'Error updating profile name', error: error.message });
     }
 };
