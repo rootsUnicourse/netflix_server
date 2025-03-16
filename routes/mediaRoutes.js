@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const mediaController = require('../controllers/mediaController');
+const { protect, isAdmin } = require('../middleware/authMiddleware');
 
 // Get media with filters (from our database)
 router.get('/', mediaController.getMedia);
@@ -23,6 +24,9 @@ router.get('/popular', mediaController.getPopular);
 // Get top rated media from TMDB
 router.get('/top-rated', mediaController.getTopRated);
 
+// Get top rated media by users
+router.get('/top-rated-by-users', mediaController.getTopRatedByUsers);
+
 // Get media by genre from TMDB
 router.get('/genre', mediaController.getByGenre);
 
@@ -30,6 +34,9 @@ router.get('/genre', mediaController.getByGenre);
 router.post('/sync-trending', mediaController.syncTrendingMedia);
 
 // Update media featured status
-router.patch('/featured/:id', mediaController.updateFeaturedStatus);
+router.patch('/featured/:id', protect, isAdmin, mediaController.updateFeaturedStatus);
+
+// Update user ratings for a media item
+router.patch('/ratings/:mediaId', protect, isAdmin, mediaController.updateUserRatings);
 
 module.exports = router; 

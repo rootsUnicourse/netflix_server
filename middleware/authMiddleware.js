@@ -23,4 +23,13 @@ const protect = (req, res, next) => {
   }
 };
 
-module.exports = { protect };
+// Admin middleware - to be used after protect middleware
+const isAdmin = (req, res, next) => {
+  if (req.user && req.user.role === 'admin') {
+    next();
+  } else {
+    return res.status(403).json({ message: 'Not authorized as admin' });
+  }
+};
+
+module.exports = { protect, isAdmin };

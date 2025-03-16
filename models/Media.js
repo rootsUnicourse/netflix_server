@@ -74,6 +74,11 @@ const MediaSchema = new mongoose.Schema({
   newRelease: {
     type: Boolean,
     default: false
+  },
+  // User rating fields
+  userRating: {
+    average: { type: Number, default: 0 },
+    count: { type: Number, default: 0 }
   }
 }, { timestamps: true });
 
@@ -85,5 +90,6 @@ MediaSchema.index({ genres: 1 });
 MediaSchema.index({ featured: 1 });
 MediaSchema.index({ trending: 1 });
 MediaSchema.index({ newRelease: 1 });
+MediaSchema.index({ 'userRating.average': -1 }); // For sorting by user ratings
 
 module.exports = mongoose.model('Media', MediaSchema); 

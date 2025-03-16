@@ -1,5 +1,6 @@
 const Media = require('../models/Media');
 const tmdbService = require('../services/tmdbService');
+const Review = require('../models/Review');
 
 // Get media by MongoDB ID
 exports.getMediaById = async (req, res) => {
@@ -267,6 +268,65 @@ exports.updateFeaturedStatus = async (req, res) => {
     res.status(200).json(media);
   } catch (error) {
     console.error('Error in updateFeaturedStatus:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Update user ratings for a media item
+exports.updateUserRatings = async (req, res) => {
+  try {
+    const { mediaId } = req.params;
+    
+    // Get the media
+    const media = await Media.findById(mediaId);
+    if (!media) {
+      return res.status(404).json({ message: 'Media not found' });
+    }
+    
+    // Get average rating from reviews
+    const ratingData = await Review.getAverageRating(mediaId);
+    
+    // Update the media with the new rating data
+    media.userRating = {
+      average: ratingData.averageRating,
+      count: ratingData.totalReviews
+    };
+    
+    await media.save();
+    
+    res.status(200).json({
+      message: 'User ratings updated successfully',
+      userRating: media.userRating
+    });
+  } catch (error) {
+    console.error('Error in updateUserRatings:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Get top rated media by users
+exports.getTopRatedByUsers = async (req, res) => {
+  try {
+    const { limit = 10, mediaType } = req.query;
+    
+    // Build query
+    const query = {
+      'userRating.count': { $gte: 5 } // Require at least 5 reviews
+    };
+    
+    if (mediaType) {
+      query.type = mediaType;
+    }
+    
+    // Execute query
+    const topRated = await Media.find(query)
+      .sort({ 'userRating.average': -1 })
+      .limit(Number(limit))
+      .select('title type posterPath userRating');
+    
+    res.status(200).json(topRated);
+  } catch (error) {
+    console.error('Error in getTopRatedByUsers:', error.message);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 }; 

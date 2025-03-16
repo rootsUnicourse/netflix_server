@@ -7,6 +7,7 @@ const mongoose = require('mongoose');
 const authRoutes = require('./routes/authRoutes');
 const profileRoutes = require('./routes/profileRoutes');
 const mediaRoutes = require('./routes/mediaRoutes');
+const reviewRoutes = require('./routes/reviewRoutes');
 
 const app = express();
 
@@ -22,6 +23,7 @@ mongoose
 app.use('/auth', authRoutes);
 app.use('/profiles', profileRoutes);
 app.use('/media', mediaRoutes);
+app.use('/reviews', reviewRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {

@@ -1,0 +1,327 @@
+const Review = require('../models/Review');
+const Media = require('../models/Media');
+const mongoose = require('mongoose');
+
+// Helper function to update media ratings
+const updateMediaRatings = async (mediaId) => {
+  try {
+    // Get average rating from reviews
+    const ratingData = await Review.getAverageRating(mediaId);
+    
+    // Update the media with the new rating data
+    await Media.findByIdAndUpdate(mediaId, {
+      userRating: {
+        average: ratingData.averageRating,
+        count: ratingData.totalReviews
+      }
+    });
+    
+    return ratingData;
+  } catch (error) {
+    console.error('Error updating media ratings:', error.message);
+    throw error;
+  }
+};
+
+// Create a new review
+exports.createReview = async (req, res) => {
+  try {
+    const { mediaId, profileId, rating, content, isPublic, spoiler } = req.body;
+    
+    if (!mediaId || !content) {
+      return res.status(400).json({ message: 'Media ID and content are required' });
+    }
+    
+    // Check if media exists
+    const media = await Media.findById(mediaId);
+    if (!media) {
+      return res.status(404).json({ message: 'Media not found' });
+    }
+    
+    // Check if user already has a review for this media
+    const existingReview = await Review.findOne({ 
+      user: req.user._id, 
+      media: mediaId 
+    });
+    
+    if (existingReview) {
+      return res.status(400).json({ 
+        message: 'You have already reviewed this media. Please update your existing review instead.' 
+      });
+    }
+    
+    // Create new review
+    const review = new Review({
+      user: req.user._id,
+      profile: profileId,
+      media: mediaId,
+      rating: rating || 0,
+      content,
+      isPublic: isPublic !== undefined ? isPublic : true,
+      spoiler: spoiler || false
+    });
+    
+    await review.save();
+    
+    // Update media ratings
+    const averageRating = await updateMediaRatings(mediaId);
+    
+    res.status(201).json({ 
+      review,
+      averageRating: averageRating.averageRating,
+      totalReviews: averageRating.totalReviews
+    });
+  } catch (error) {
+    console.error('Error in createReview:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Get all reviews for a media item
+exports.getMediaReviews = async (req, res) => {
+  try {
+    const { mediaId } = req.params;
+    const { page = 1, limit = 10, sort = 'recent' } = req.query;
+    
+    // Check if media exists
+    const media = await Media.findById(mediaId);
+    if (!media) {
+      return res.status(404).json({ message: 'Media not found' });
+    }
+    
+    // Build query
+    const query = { 
+      media: mediaId,
+      // If user is not logged in or viewing someone else's reviews, only show public reviews
+      ...((!req.user || req.query.userId !== req.user._id.toString()) && { isPublic: true })
+    };
+    
+    // If viewing a specific user's reviews
+    if (req.query.userId) {
+      query.user = req.query.userId;
+    }
+    
+    // Build sort object
+    let sortObj = {};
+    if (sort === 'recent') {
+      sortObj = { createdAt: -1 };
+    } else if (sort === 'rating-high') {
+      sortObj = { rating: -1, createdAt: -1 };
+    } else if (sort === 'rating-low') {
+      sortObj = { rating: 1, createdAt: -1 };
+    } else if (sort === 'likes') {
+      sortObj = { likes: -1, createdAt: -1 };
+    }
+    
+    // Calculate pagination
+    const skip = (Number(page) - 1) * Number(limit);
+    
+    // Execute query with population
+    const reviews = await Review.find(query)
+      .sort(sortObj)
+      .skip(skip)
+      .limit(Number(limit))
+      .populate('user', 'emailOrPhone')
+      .populate('profile', 'name avatar');
+    
+    // Get total count for pagination
+    const total = await Review.countDocuments(query);
+    
+    res.status(200).json({
+      page: Number(page),
+      totalPages: Math.ceil(total / Number(limit)),
+      totalReviews: total,
+      averageRating: media.userRating.average,
+      reviews
+    });
+  } catch (error) {
+    console.error('Error in getMediaReviews:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Get all reviews by a user
+exports.getUserReviews = async (req, res) => {
+  try {
+    const userId = req.params.userId || req.user._id;
+    const { page = 1, limit = 10, mediaType } = req.query;
+    
+    // Build query
+    const query = { 
+      user: userId,
+      // If user is not logged in or viewing someone else's reviews, only show public reviews
+      ...((!req.user || userId !== req.user._id.toString()) && { isPublic: true })
+    };
+    
+    // Filter by media type if specified
+    if (mediaType) {
+      // We need to first find media IDs of the specified type
+      const mediaIds = await Media.find({ type: mediaType }).distinct('_id');
+      query.media = { $in: mediaIds };
+    }
+    
+    // Calculate pagination
+    const skip = (Number(page) - 1) * Number(limit);
+    
+    // Execute query with population
+    const reviews = await Review.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(Number(limit))
+      .populate('media', 'title posterPath type')
+      .populate('profile', 'name avatar');
+    
+    // Get total count for pagination
+    const total = await Review.countDocuments(query);
+    
+    res.status(200).json({
+      page: Number(page),
+      totalPages: Math.ceil(total / Number(limit)),
+      totalReviews: total,
+      reviews
+    });
+  } catch (error) {
+    console.error('Error in getUserReviews:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Get a specific review by ID
+exports.getReviewById = async (req, res) => {
+  try {
+    const { reviewId } = req.params;
+    
+    const review = await Review.findById(reviewId)
+      .populate('user', 'emailOrPhone')
+      .populate('profile', 'name avatar')
+      .populate('media', 'title posterPath type');
+    
+    if (!review) {
+      return res.status(404).json({ message: 'Review not found' });
+    }
+    
+    // Check if review is private and not owned by the requesting user
+    if (!review.isPublic && (!req.user || review.user._id.toString() !== req.user._id.toString())) {
+      return res.status(403).json({ message: 'This review is private' });
+    }
+    
+    res.status(200).json(review);
+  } catch (error) {
+    console.error('Error in getReviewById:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Update a review
+exports.updateReview = async (req, res) => {
+  try {
+    const { reviewId } = req.params;
+    const { rating, content, isPublic, spoiler } = req.body;
+    
+    // Find the review
+    const review = await Review.findById(reviewId);
+    
+    if (!review) {
+      return res.status(404).json({ message: 'Review not found' });
+    }
+    
+    // Check if user owns the review
+    if (review.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'You can only update your own reviews' });
+    }
+    
+    // Update fields
+    if (rating !== undefined) review.rating = rating;
+    if (content) review.content = content;
+    if (isPublic !== undefined) review.isPublic = isPublic;
+    if (spoiler !== undefined) review.spoiler = spoiler;
+    
+    // Save updated review
+    await review.save();
+    
+    // Update media ratings
+    const averageRating = await updateMediaRatings(review.media);
+    
+    res.status(200).json({ 
+      review,
+      averageRating: averageRating.averageRating,
+      totalReviews: averageRating.totalReviews
+    });
+  } catch (error) {
+    console.error('Error in updateReview:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Delete a review
+exports.deleteReview = async (req, res) => {
+  try {
+    const { reviewId } = req.params;
+    
+    // Find the review
+    const review = await Review.findById(reviewId);
+    
+    if (!review) {
+      return res.status(404).json({ message: 'Review not found' });
+    }
+    
+    // Check if user owns the review or is an admin
+    if (review.user.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'You can only delete your own reviews' });
+    }
+    
+    const mediaId = review.media;
+    
+    // Delete the review
+    await Review.findByIdAndDelete(reviewId);
+    
+    // Update media ratings
+    const averageRating = await updateMediaRatings(mediaId);
+    
+    res.status(200).json({ 
+      message: 'Review deleted successfully',
+      averageRating: averageRating.averageRating,
+      totalReviews: averageRating.totalReviews
+    });
+  } catch (error) {
+    console.error('Error in deleteReview:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Like a review
+exports.likeReview = async (req, res) => {
+  try {
+    const { reviewId } = req.params;
+    
+    // Find and update the review
+    const review = await Review.findByIdAndUpdate(
+      reviewId,
+      { $inc: { likes: 1 } },
+      { new: true }
+    );
+    
+    if (!review) {
+      return res.status(404).json({ message: 'Review not found' });
+    }
+    
+    res.status(200).json({ likes: review.likes });
+  } catch (error) {
+    console.error('Error in likeReview:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Get top rated media based on reviews
+exports.getTopRatedMedia = async (req, res) => {
+  try {
+    const { limit = 10, mediaType } = req.query;
+    
+    const topRated = await Review.getTopRatedMedia(Number(limit), mediaType);
+    
+    res.status(200).json(topRated);
+  } catch (error) {
+    console.error('Error in getTopRatedMedia:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+}; 
