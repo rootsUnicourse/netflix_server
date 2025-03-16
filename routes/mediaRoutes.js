@@ -42,6 +42,9 @@ router.post('/sync-popular-movies', protect, isAdmin, mediaController.syncPopula
 // Sync popular TV shows from TMDB to our database
 router.post('/sync-popular-tv', protect, isAdmin, mediaController.syncPopularTVShows);
 
+// Refresh all media data from TMDB
+router.post('/refresh-all', protect, isAdmin, mediaController.refreshAllMedia);
+
 // Update media featured status
 router.patch('/featured/:id', protect, isAdmin, mediaController.updateFeaturedStatus);
 

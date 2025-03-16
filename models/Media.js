@@ -62,6 +62,22 @@ const MediaSchema = new mongoose.Schema({
   trailerKey: { 
     type: String 
   },
+  // New fields for additional details
+  director: { 
+    type: String 
+  }, // For movies
+  creators: [{ 
+    type: String 
+  }], // For TV shows
+  contentTags: [{ 
+    type: String 
+  }],
+  maturityRating: { 
+    type: String 
+  },
+  additionalImages: [{ 
+    type: String 
+  }],
   // Fields for local management
   featured: {
     type: Boolean,

@@ -58,14 +58,14 @@ class TMDBService {
   // Get movie details by TMDB ID
   async getMovieDetails(movieId) {
     return this.fetchFromTMDB(`/movie/${movieId}`, {
-      append_to_response: 'videos,credits',
+      append_to_response: 'videos,credits,images,release_dates,keywords',
     });
   }
 
   // Get TV show details by TMDB ID
   async getTVShowDetails(tvId) {
     return this.fetchFromTMDB(`/tv/${tvId}`, {
-      append_to_response: 'videos,credits',
+      append_to_response: 'videos,credits,images,content_ratings,keywords',
     });
   }
 
@@ -104,6 +104,45 @@ class TMDBService {
       (video) => video.type === 'Trailer' && video.site === 'YouTube'
     );
 
+    // Find director from crew
+    const director = tmdbMovie.credits?.crew.find(
+      (person) => person.job === 'Director'
+    );
+
+    // Get content tags from keywords
+    const contentTags = tmdbMovie.keywords?.keywords.map(keyword => keyword.name) || [];
+
+    // Get maturity rating (US rating if available, otherwise first available)
+    let maturityRating = 'Not Rated';
+    if (tmdbMovie.release_dates?.results) {
+      const usRatings = tmdbMovie.release_dates.results.find(
+        country => country.iso_3166_1 === 'US'
+      );
+      
+      if (usRatings && usRatings.release_dates && usRatings.release_dates.length > 0) {
+        const rating = usRatings.release_dates.find(date => date.certification);
+        if (rating && rating.certification) {
+          maturityRating = rating.certification;
+        }
+      } else if (tmdbMovie.release_dates.results.length > 0) {
+        // Use first available rating if US not available
+        for (const country of tmdbMovie.release_dates.results) {
+          if (country.release_dates && country.release_dates.length > 0) {
+            const rating = country.release_dates.find(date => date.certification);
+            if (rating && rating.certification) {
+              maturityRating = `${rating.certification} (${country.iso_3166_1})`;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // Get additional images (backdrops)
+    const additionalImages = tmdbMovie.images?.backdrops
+      .slice(0, 3)
+      .map(image => `${TMDB_IMAGE_BASE_URL}${BACKDROP_SIZE}${image.file_path}`) || [];
+
     return {
       tmdbId: tmdbMovie.id,
       title: tmdbMovie.title,
@@ -126,6 +165,11 @@ class TMDBService {
         profilePath: actor.profile_path ? `${TMDB_IMAGE_BASE_URL}${PROFILE_SIZE}${actor.profile_path}` : null,
       })) || [],
       trailerKey: trailerVideo?.key || null,
+      // New fields
+      director: director ? director.name : null,
+      contentTags: contentTags,
+      maturityRating: maturityRating,
+      additionalImages: additionalImages,
       // Set local management fields based on criteria
       newRelease: tmdbMovie.release_date ? 
         (new Date().getTime() - new Date(tmdbMovie.release_date).getTime() < 90 * 24 * 60 * 60 * 1000) : false, // 90 days
@@ -138,6 +182,35 @@ class TMDBService {
     const trailerVideo = tmdbTV.videos?.results.find(
       (video) => video.type === 'Trailer' && video.site === 'YouTube'
     );
+
+    // Find creators/showrunners
+    const creators = tmdbTV.created_by?.map(person => person.name) || [];
+
+    // Get content tags from keywords
+    const contentTags = tmdbTV.keywords?.results?.map(keyword => keyword.name) || [];
+
+    // Get maturity rating (US rating if available, otherwise first available)
+    let maturityRating = 'Not Rated';
+    if (tmdbTV.content_ratings?.results) {
+      const usRating = tmdbTV.content_ratings.results.find(
+        country => country.iso_3166_1 === 'US'
+      );
+      
+      if (usRating && usRating.rating) {
+        maturityRating = usRating.rating;
+      } else if (tmdbTV.content_ratings.results.length > 0) {
+        // Use first available rating if US not available
+        const firstRating = tmdbTV.content_ratings.results[0];
+        if (firstRating.rating) {
+          maturityRating = `${firstRating.rating} (${firstRating.iso_3166_1})`;
+        }
+      }
+    }
+
+    // Get additional images (backdrops)
+    const additionalImages = tmdbTV.images?.backdrops
+      .slice(0, 3)
+      .map(image => `${TMDB_IMAGE_BASE_URL}${BACKDROP_SIZE}${image.file_path}`) || [];
 
     return {
       tmdbId: tmdbTV.id,
@@ -161,6 +234,11 @@ class TMDBService {
         profilePath: actor.profile_path ? `${TMDB_IMAGE_BASE_URL}${PROFILE_SIZE}${actor.profile_path}` : null,
       })) || [],
       trailerKey: trailerVideo?.key || null,
+      // New fields
+      creators: creators,
+      contentTags: contentTags,
+      maturityRating: maturityRating,
+      additionalImages: additionalImages,
       // Set local management fields based on criteria
       newRelease: tmdbTV.first_air_date ? 
         (new Date().getTime() - new Date(tmdbTV.first_air_date).getTime() < 90 * 24 * 60 * 60 * 1000) : false, // 90 days

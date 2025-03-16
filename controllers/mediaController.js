@@ -1,6 +1,7 @@
 const Media = require('../models/Media');
 const tmdbService = require('../services/tmdbService');
 const Review = require('../models/Review');
+const refreshAllMediaData = require('../scripts/refreshMediaData');
 
 // Get media by MongoDB ID
 exports.getMediaById = async (req, res) => {
@@ -362,6 +363,38 @@ exports.syncPopularTVShows = async (req, res) => {
     res.status(200).json(result);
   } catch (error) {
     console.error('Error in syncPopularTVShows:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Refresh all media data from TMDB
+exports.refreshAllMedia = async (req, res) => {
+  try {
+    // Check if user is admin (if you have authentication)
+    if (req.user && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Not authorized to perform this action' });
+    }
+
+    // Start the refresh process
+    console.log('Starting media refresh process from API request');
+    
+    // Run the refresh process without waiting for it to complete
+    // This prevents timeout issues for large datasets
+    refreshAllMediaData()
+      .then(result => {
+        console.log('Refresh completed with result:', result);
+      })
+      .catch(error => {
+        console.error('Refresh failed:', error);
+      });
+    
+    // Immediately return a response
+    res.status(200).json({ 
+      message: 'Media refresh process started in the background',
+      status: 'processing'
+    });
+  } catch (error) {
+    console.error('Error in refreshAllMedia controller:', error.message);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 }; 
