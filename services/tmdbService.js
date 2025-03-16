@@ -240,6 +240,116 @@ class TMDBService {
       throw error;
     }
   }
+
+  // Sync popular movies from TMDB to our database
+  async syncPopularMovies(limit = 10) {
+    try {
+      // Get popular movies
+      const popularData = await this.getPopular('movie');
+      
+      // Process each popular movie (up to the limit)
+      const moviesToProcess = popularData.results.slice(0, limit);
+      
+      for (const movie of moviesToProcess) {
+        await this.fetchAndStoreMovie(movie.id);
+      }
+      
+      return { success: true, count: moviesToProcess.length };
+    } catch (error) {
+      console.error('Error syncing popular movies:', error.message);
+      throw error;
+    }
+  }
+
+  // Sync popular TV shows from TMDB to our database
+  async syncPopularTVShows(limit = 10) {
+    try {
+      // Get popular TV shows
+      const popularData = await this.getPopular('tv');
+      
+      // Process each popular TV show (up to the limit)
+      const tvShowsToProcess = popularData.results.slice(0, limit);
+      
+      for (const tvShow of tvShowsToProcess) {
+        await this.fetchAndStoreTV(tvShow.id);
+      }
+      
+      return { success: true, count: tvShowsToProcess.length };
+    } catch (error) {
+      console.error('Error syncing popular TV shows:', error.message);
+      throw error;
+    }
+  }
+
+  // Sync top rated movies from TMDB to our database
+  async syncTopRatedMovies(limit = 10) {
+    try {
+      // Get top rated movies
+      const topRatedData = await this.getTopRated('movie');
+      
+      // Process each top rated movie (up to the limit)
+      const moviesToProcess = topRatedData.results.slice(0, limit);
+      
+      for (const movie of moviesToProcess) {
+        await this.fetchAndStoreMovie(movie.id);
+      }
+      
+      return { success: true, count: moviesToProcess.length };
+    } catch (error) {
+      console.error('Error syncing top rated movies:', error.message);
+      throw error;
+    }
+  }
+
+  // Sync top rated TV shows from TMDB to our database
+  async syncTopRatedTVShows(limit = 10) {
+    try {
+      // Get top rated TV shows
+      const topRatedData = await this.getTopRated('tv');
+      
+      // Process each top rated TV show (up to the limit)
+      const tvShowsToProcess = topRatedData.results.slice(0, limit);
+      
+      for (const tvShow of tvShowsToProcess) {
+        await this.fetchAndStoreTV(tvShow.id);
+      }
+      
+      return { success: true, count: tvShowsToProcess.length };
+    } catch (error) {
+      console.error('Error syncing top rated TV shows:', error.message);
+      throw error;
+    }
+  }
+
+  // Seed the database with initial content
+  async seedDatabase() {
+    try {
+      console.log('Starting database seeding with TMDB content...');
+      
+      // Check if we already have content
+      const mediaCount = await Media.countDocuments();
+      
+      if (mediaCount > 0) {
+        console.log(`Database already has ${mediaCount} media items. Skipping seeding.`);
+        return { success: true, skipped: true, existingCount: mediaCount };
+      }
+      
+      // Sync trending, popular, and top-rated content
+      await this.syncTrendingMedia();
+      await this.syncPopularMovies(10);
+      await this.syncPopularTVShows(10);
+      await this.syncTopRatedMovies(5);
+      await this.syncTopRatedTVShows(5);
+      
+      const newCount = await Media.countDocuments();
+      console.log(`Database seeding complete. Added ${newCount} media items.`);
+      
+      return { success: true, count: newCount };
+    } catch (error) {
+      console.error('Error seeding database:', error.message);
+      throw error;
+    }
+  }
 }
 
 module.exports = new TMDBService(); 

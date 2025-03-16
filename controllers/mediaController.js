@@ -329,4 +329,39 @@ exports.getTopRatedByUsers = async (req, res) => {
     console.error('Error in getTopRatedByUsers:', error.message);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
+};
+
+// Seed database with initial content from TMDB
+exports.seedDatabase = async (req, res) => {
+  try {
+    const result = await tmdbService.seedDatabase();
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('Error in seedDatabase:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Sync popular movies from TMDB to our database
+exports.syncPopularMovies = async (req, res) => {
+  try {
+    const limit = req.query.limit ? parseInt(req.query.limit) : 10;
+    const result = await tmdbService.syncPopularMovies(limit);
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('Error in syncPopularMovies:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Sync popular TV shows from TMDB to our database
+exports.syncPopularTVShows = async (req, res) => {
+  try {
+    const limit = req.query.limit ? parseInt(req.query.limit) : 10;
+    const result = await tmdbService.syncPopularTVShows(limit);
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('Error in syncPopularTVShows:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
 }; 

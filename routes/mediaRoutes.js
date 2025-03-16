@@ -33,6 +33,15 @@ router.get('/genre', mediaController.getByGenre);
 // Sync trending media from TMDB to our database
 router.post('/sync-trending', mediaController.syncTrendingMedia);
 
+// Seed database with initial content from TMDB
+router.post('/seed-database', protect, isAdmin, mediaController.seedDatabase);
+
+// Sync popular movies from TMDB to our database
+router.post('/sync-popular-movies', protect, isAdmin, mediaController.syncPopularMovies);
+
+// Sync popular TV shows from TMDB to our database
+router.post('/sync-popular-tv', protect, isAdmin, mediaController.syncPopularTVShows);
+
 // Update media featured status
 router.patch('/featured/:id', protect, isAdmin, mediaController.updateFeaturedStatus);
 

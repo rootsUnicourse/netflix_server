@@ -6,7 +6,12 @@
     "start": "node index.js",
     "dev": "nodemon index.js",
     "test:api": "node tests/testMediaAPI.js",
-    "test:endpoints": "node tests/testMediaEndpoints.js"
+    "test:endpoints": "node tests/testMediaEndpoints.js",
+    "seed": "node seedDatabase.js",
+    "seed:full": "node seedDatabase.js --with-popular",
+    "add-media": "node addMedia.js",
+    "search-add": "node searchAndAddMedia.js",
+    "check-tmdb": "node checkTMDBKey.js"
   },
   "keywords": [],
   "author": "",
