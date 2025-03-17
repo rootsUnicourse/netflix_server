@@ -21,6 +21,9 @@ router.get('/trending', mediaController.getTrending);
 // Get popular media from TMDB
 router.get('/popular', mediaController.getPopular);
 
+// Get popular media in Israel from TMDB
+router.get('/popular-in-israel', mediaController.getPopularInIsrael);
+
 // Get top rated media from TMDB
 router.get('/top-rated', mediaController.getTopRated);
 

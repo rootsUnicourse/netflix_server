@@ -84,6 +84,14 @@ class TMDBService {
     return this.fetchFromTMDB(`/${mediaType}/popular`, { page });
   }
 
+  // Get popular movies or TV shows by region
+  async getPopularByRegion(mediaType, region = 'IL', page = 1) {
+    return this.fetchFromTMDB(`/${mediaType}/popular`, { 
+      page,
+      region
+    });
+  }
+
   // Get top rated movies or TV shows
   async getTopRated(mediaType, page = 1) {
     return this.fetchFromTMDB(`/${mediaType}/top_rated`, { page });
