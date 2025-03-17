@@ -11,7 +11,9 @@
     "seed:full": "node seedDatabase.js --with-popular",
     "add-media": "node addMedia.js",
     "search-add": "node searchAndAddMedia.js",
-    "check-tmdb": "node checkTMDBKey.js"
+    "check-tmdb": "node checkTMDBKey.js",
+    "refresh-media": "node refreshMedia.js",
+    "mark-popular-israel": "node markPopularInIsrael.js"
   },
   "keywords": [],
   "author": "",

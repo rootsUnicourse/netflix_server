@@ -21,9 +21,6 @@ router.get('/trending', mediaController.getTrending);
 // Get popular media from TMDB
 router.get('/popular', mediaController.getPopular);
 
-// Get popular media in Israel from TMDB
-router.get('/popular-in-israel', mediaController.getPopularInIsrael);
-
 // Get top rated media from TMDB
 router.get('/top-rated', mediaController.getTopRated);
 
@@ -53,5 +50,11 @@ router.patch('/featured/:id', protect, isAdmin, mediaController.updateFeaturedSt
 
 // Update user ratings for a media item
 router.patch('/ratings/:mediaId', protect, isAdmin, mediaController.updateUserRatings);
+
+// Get top shows in Israel
+router.get('/top-shows-israel', mediaController.getTopShowsInIsrael);
+
+// Mark shows as popular in Israel (admin only)
+router.post('/mark-popular-israel', protect, isAdmin, mediaController.markShowsAsPopularInIsrael);
 
 module.exports = router; 

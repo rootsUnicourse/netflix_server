@@ -120,42 +120,6 @@ exports.getPopular = async (req, res) => {
   }
 };
 
-// Get popular media in Israel
-exports.getPopularInIsrael = async (req, res) => {
-  try {
-    const { mediaType = 'all', page = 1, limit = 10 } = req.query;
-    let results = { results: [] };
-    
-    // If mediaType is 'all', fetch both movies and TV shows
-    if (mediaType === 'all') {
-      const movieResults = await tmdbService.getPopularByRegion('movie', 'IL', Number(page));
-      const tvResults = await tmdbService.getPopularByRegion('tv', 'IL', Number(page));
-      
-      // Combine and sort by popularity
-      const combinedResults = [
-        ...movieResults.results.map(item => ({ ...item, media_type: 'movie' })),
-        ...tvResults.results.map(item => ({ ...item, media_type: 'tv' }))
-      ].sort((a, b) => b.popularity - a.popularity);
-      
-      results.results = combinedResults.slice(0, Number(limit));
-    } else if (mediaType === 'movie' || mediaType === 'tv') {
-      results = await tmdbService.getPopularByRegion(mediaType, 'IL', Number(page));
-      
-      // Limit results if needed
-      if (limit && results.results.length > Number(limit)) {
-        results.results = results.results.slice(0, Number(limit));
-      }
-    } else {
-      return res.status(400).json({ message: 'Media type must be all, movie, or tv' });
-    }
-    
-    res.status(200).json(results);
-  } catch (error) {
-    console.error('Error in getPopularInIsrael:', error.message);
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
-
 // Get top rated media
 exports.getTopRated = async (req, res) => {
   try {
@@ -431,6 +395,61 @@ exports.refreshAllMedia = async (req, res) => {
     });
   } catch (error) {
     console.error('Error in refreshAllMedia controller:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Get top shows in Israel
+exports.getTopShowsInIsrael = async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 10;
+    
+    const shows = await Media.find({ 
+      type: 'tv',
+      popularInIsrael: true 
+    })
+    .sort({ popularity: -1 })
+    .limit(limit);
+    
+    res.status(200).json({
+      results: shows,
+      totalResults: shows.length,
+      page: 1,
+      totalPages: 1
+    });
+  } catch (error) {
+    console.error('Error in getTopShowsInIsrael:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Mark shows as popular in Israel
+exports.markShowsAsPopularInIsrael = async (req, res) => {
+  try {
+    const { showIds } = req.body;
+    
+    if (!showIds || !Array.isArray(showIds)) {
+      return res.status(400).json({ message: 'Invalid request. Expected array of show IDs' });
+    }
+    
+    // Reset all shows first
+    await Media.updateMany(
+      { popularInIsrael: true },
+      { $set: { popularInIsrael: false } }
+    );
+    
+    // Mark the specified shows as popular in Israel
+    const result = await Media.updateMany(
+      { tmdbId: { $in: showIds }, type: 'tv' },
+      { $set: { popularInIsrael: true } }
+    );
+    
+    res.status(200).json({
+      message: 'Shows marked as popular in Israel successfully',
+      modifiedCount: result.modifiedCount
+    });
+  } catch (error) {
+    console.error('Error in markShowsAsPopularInIsrael:', error.message);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 }; 

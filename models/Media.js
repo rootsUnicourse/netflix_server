@@ -47,6 +47,21 @@ const MediaSchema = new mongoose.Schema({
   seasons: { 
     type: Number 
   }, // For TV shows
+  seasonData: [{
+    seasonNumber: { type: Number },
+    name: { type: String },
+    overview: { type: String },
+    posterPath: { type: String },
+    airDate: { type: Date },
+    episodes: [{
+      episodeNumber: { type: Number },
+      name: { type: String },
+      overview: { type: String },
+      stillPath: { type: String },
+      airDate: { type: Date },
+      runtime: { type: Number }
+    }]
+  }],
   status: { 
     type: String 
   },
@@ -91,6 +106,10 @@ const MediaSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  popularInIsrael: {
+    type: Boolean,
+    default: false
+  },
   // User rating fields
   userRating: {
     average: { type: Number, default: 0 },
@@ -107,5 +126,6 @@ MediaSchema.index({ featured: 1 });
 MediaSchema.index({ trending: 1 });
 MediaSchema.index({ newRelease: 1 });
 MediaSchema.index({ 'userRating.average': -1 }); // For sorting by user ratings
+MediaSchema.index({ popularInIsrael: 1 });
 
 module.exports = mongoose.model('Media', MediaSchema); 

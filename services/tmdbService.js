@@ -84,14 +84,6 @@ class TMDBService {
     return this.fetchFromTMDB(`/${mediaType}/popular`, { page });
   }
 
-  // Get popular movies or TV shows by region
-  async getPopularByRegion(mediaType, region = 'IL', page = 1) {
-    return this.fetchFromTMDB(`/${mediaType}/popular`, { 
-      page,
-      region
-    });
-  }
-
   // Get top rated movies or TV shows
   async getTopRated(mediaType, page = 1) {
     return this.fetchFromTMDB(`/${mediaType}/top_rated`, { page });
@@ -284,6 +276,23 @@ class TMDBService {
         media = await Media.create(tvData);
       }
       
+      // Check if we need to fetch season data
+      if (!media.seasonData || media.seasonData.length === 0) {
+        try {
+          // Fetch all seasons data
+          const seasonsData = await this.fetchAllTVShowSeasons(tvId, media.seasons);
+          
+          // Update the media with season data
+          await Media.findByIdAndUpdate(media._id, { seasonData: seasonsData });
+          
+          // Refresh the media object with the updated data
+          media = await Media.findById(media._id);
+        } catch (seasonError) {
+          console.warn(`Could not fetch season data for TV show ${tvId}:`, seasonError.message);
+          // Continue even if season data fetch fails
+        }
+      }
+      
       return media;
     } catch (error) {
       console.error(`Error fetching and storing TV show ${tvId}:`, error.message);
@@ -433,6 +442,58 @@ class TMDBService {
       return { success: true, count: newCount };
     } catch (error) {
       console.error('Error seeding database:', error.message);
+      throw error;
+    }
+  }
+
+  // Fetch TV show season details including episodes
+  async fetchTVShowSeason(tmdbId, seasonNumber) {
+    try {
+      const data = await this.fetchFromTMDB(`/tv/${tmdbId}/season/${seasonNumber}`);
+      
+      // Process episodes to include image paths
+      const episodes = data.episodes.map(episode => ({
+        episodeNumber: episode.episode_number,
+        name: episode.name,
+        overview: episode.overview,
+        stillPath: episode.still_path ? `${TMDB_IMAGE_BASE_URL}original${episode.still_path}` : null,
+        airDate: episode.air_date,
+        runtime: episode.runtime
+      }));
+      
+      return {
+        seasonNumber: data.season_number,
+        name: data.name,
+        overview: data.overview,
+        posterPath: data.poster_path ? `${TMDB_IMAGE_BASE_URL}${POSTER_SIZE}${data.poster_path}` : null,
+        airDate: data.air_date,
+        episodes
+      };
+    } catch (error) {
+      console.error(`Error fetching TV show season details for TMDB ID ${tmdbId}, Season ${seasonNumber}:`, error.message);
+      throw error;
+    }
+  }
+
+  // Fetch all seasons for a TV show
+  async fetchAllTVShowSeasons(tmdbId, numberOfSeasons) {
+    try {
+      const seasons = [];
+      
+      // Fetch each season (starting from 1, as 0 is usually specials)
+      for (let i = 1; i <= numberOfSeasons; i++) {
+        try {
+          const seasonData = await this.fetchTVShowSeason(tmdbId, i);
+          seasons.push(seasonData);
+        } catch (error) {
+          console.warn(`Could not fetch season ${i} for TV show ${tmdbId}:`, error.message);
+          // Continue with other seasons even if one fails
+        }
+      }
+      
+      return seasons;
+    } catch (error) {
+      console.error(`Error fetching all TV show seasons for TMDB ID ${tmdbId}:`, error.message);
       throw error;
     }
   }
