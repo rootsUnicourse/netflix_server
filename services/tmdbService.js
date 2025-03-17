@@ -451,20 +451,35 @@ class TMDBService {
     try {
       const data = await this.fetchFromTMDB(`/tv/${tmdbId}/season/${seasonNumber}`);
       
-      // Process episodes to include image paths
+      // Process episodes to include image paths and more detailed information
       const episodes = data.episodes.map(episode => ({
         episodeNumber: episode.episode_number,
         name: episode.name,
-        overview: episode.overview,
+        overview: episode.overview || '',
         stillPath: episode.still_path ? `${TMDB_IMAGE_BASE_URL}original${episode.still_path}` : null,
         airDate: episode.air_date,
-        runtime: episode.runtime
+        runtime: episode.runtime || 0,
+        voteAverage: episode.vote_average || 0,
+        voteCount: episode.vote_count || 0,
+        crew: episode.crew ? episode.crew.slice(0, 5).map(person => ({
+          id: person.id,
+          name: person.name,
+          job: person.job,
+          department: person.department,
+          profilePath: person.profile_path ? `${TMDB_IMAGE_BASE_URL}${PROFILE_SIZE}${person.profile_path}` : null
+        })) : [],
+        guestStars: episode.guest_stars ? episode.guest_stars.slice(0, 5).map(person => ({
+          id: person.id,
+          name: person.name,
+          character: person.character,
+          profilePath: person.profile_path ? `${TMDB_IMAGE_BASE_URL}${PROFILE_SIZE}${person.profile_path}` : null
+        })) : []
       }));
       
       return {
         seasonNumber: data.season_number,
         name: data.name,
-        overview: data.overview,
+        overview: data.overview || '',
         posterPath: data.poster_path ? `${TMDB_IMAGE_BASE_URL}${POSTER_SIZE}${data.poster_path}` : null,
         airDate: data.air_date,
         episodes

@@ -13,7 +13,8 @@
     "search-add": "node searchAndAddMedia.js",
     "check-tmdb": "node checkTMDBKey.js",
     "refresh-media": "node refreshMedia.js",
-    "mark-popular-israel": "node markPopularInIsrael.js"
+    "mark-popular-israel": "node markPopularInIsrael.js",
+    "update-episodes": "node updateTVShowEpisodes.js"
   },
   "keywords": [],
   "author": "",

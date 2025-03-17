@@ -59,7 +59,22 @@ const MediaSchema = new mongoose.Schema({
       overview: { type: String },
       stillPath: { type: String },
       airDate: { type: Date },
-      runtime: { type: Number }
+      runtime: { type: Number },
+      voteAverage: { type: Number },
+      voteCount: { type: Number },
+      crew: [{
+        id: { type: Number },
+        name: { type: String },
+        job: { type: String },
+        department: { type: String },
+        profilePath: { type: String }
+      }],
+      guestStars: [{
+        id: { type: Number },
+        name: { type: String },
+        character: { type: String },
+        profilePath: { type: String }
+      }]
     }]
   }],
   status: { 
