@@ -112,7 +112,7 @@ ReviewSchema.statics.getTopRatedMedia = async function(limit = 10, mediaType = n
     },
     {
       $match: {
-        totalReviews: { $gte: 5 } // Require at least 5 reviews to be considered
+        totalReviews: { $gte: 1 } // Require at least 1 review to be considered (changed from 5)
       }
     },
     {

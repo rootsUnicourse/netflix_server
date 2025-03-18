@@ -312,7 +312,7 @@ exports.getTopRatedByUsers = async (req, res) => {
     
     // Build query
     const query = {
-      'userRating.count': { $gte: 5 } // Require at least 5 reviews
+      'userRating.count': { $gte: 1 } // Require at least 1 review (changed from 5)
     };
     
     if (mediaType) {
