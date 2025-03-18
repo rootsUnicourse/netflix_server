@@ -215,67 +215,28 @@ exports.getUserReviews = async (req, res) => {
     // Calculate pagination
     const skip = (Number(page) - 1) * Number(limit);
     
-    // Execute query with population
+    // Execute query with population and make sure we sort by the most recent reviews
     let reviews = await Review.find(query)
-      .sort({ createdAt: -1 })
+      .sort({ createdAt: -1 }) // Sort by most recent first
       .skip(skip)
       .limit(Number(limit))
-      .populate('media', 'title posterPath type')
+      .populate('media', 'title posterPath backdropPath type seasons')
       .populate('user', 'emailOrPhone profiles');
     
-    // Process reviews to include profile data from the user document
-    const processedReviews = await Promise.all(reviews.map(async (review) => {
-      const reviewObj = review.toObject();
-      
-      try {
-        // Get user object from populated data or find the user
-        const user = review.user;
-        
-        if (user && user.profiles && user.profiles.length > 0) {
-          // Find the matching profile by ID from the user's profiles array
-          const profileId = review.profile.toString();
-          const profileData = user.profiles.find(p => p._id.toString() === profileId);
-          
-          if (profileData) {
-            reviewObj.profile = {
-              _id: profileData._id,
-              name: profileData.name,
-              avatar: profileData.avatar
-            };
-          } else {
-            // If profile not found in user's profiles, use default
-            reviewObj.profile = {
-              name: 'Unknown User',
-              avatar: '/default-avatar.png'
-            };
-          }
-        } else {
-          // If user has no profiles, use default
-          reviewObj.profile = {
-            name: 'Unknown User',
-            avatar: '/default-avatar.png'
-          };
-        }
-      } catch (err) {
-        console.error('Error processing review profile:', err.message);
-        // If error occurs, use default
-        reviewObj.profile = {
-          name: 'Unknown User',
-          avatar: '/default-avatar.png'
-        };
-      }
-      
-      return reviewObj;
-    }));
+    if (!reviews) {
+      return res.status(404).json({ message: 'No reviews found' });
+    }
     
-    // Get total count for pagination
-    const total = await Review.countDocuments(query);
+    // Calculate total reviews for pagination
+    const totalReviews = await Review.countDocuments(query);
     
+    // Return result
     res.status(200).json({
+      results: reviews,
       page: Number(page),
-      totalPages: Math.ceil(total / Number(limit)),
-      totalReviews: total,
-      reviews: processedReviews
+      limit: Number(limit),
+      totalPages: Math.ceil(totalReviews / Number(limit)),
+      totalResults: totalReviews
     });
   } catch (error) {
     console.error('Error in getUserReviews:', error.message);
