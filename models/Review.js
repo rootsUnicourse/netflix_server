@@ -142,6 +142,7 @@ ReviewSchema.statics.getTopRatedMedia = async function(limit = 10, mediaType = n
         title: '$mediaData.title',
         type: '$mediaData.type',
         posterPath: '$mediaData.posterPath',
+        backdropPath: '$mediaData.backdropPath',
         averageRating: 1,
         totalReviews: 1
       }

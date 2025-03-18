@@ -323,7 +323,7 @@ exports.getTopRatedByUsers = async (req, res) => {
     const topRated = await Media.find(query)
       .sort({ 'userRating.average': -1 })
       .limit(Number(limit))
-      .select('title type posterPath userRating');
+      .select('title type posterPath backdropPath userRating');
     
     res.status(200).json(topRated);
   } catch (error) {
