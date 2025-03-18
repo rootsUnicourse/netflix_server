@@ -55,31 +55,42 @@ ReviewSchema.index({ isPublic: 1 }); // Public vs private reviews
 
 // Static method to get average rating for a media item
 ReviewSchema.statics.getAverageRating = async function(mediaId) {
-  const result = await this.aggregate([
-    {
-      $match: { 
-        media: mongoose.Types.ObjectId(mediaId),
-        rating: { $gt: 0 } // Only include actual ratings (not 0)
+  try {
+    // Convert mediaId to ObjectId if it's not already
+    const mediaObjectId = new mongoose.Types.ObjectId(mediaId);
+    
+    const result = await this.aggregate([
+      {
+        $match: { 
+          media: mediaObjectId,
+          rating: { $gt: 0 } // Only include actual ratings (not 0)
+        }
+      },
+      {
+        $group: {
+          _id: '$media',
+          averageRating: { $avg: '$rating' },
+          totalReviews: { $sum: 1 }
+        }
       }
-    },
-    {
-      $group: {
-        _id: '$media',
-        averageRating: { $avg: '$rating' },
-        totalReviews: { $sum: 1 }
-      }
-    }
-  ]);
-  
-  return result.length > 0 
-    ? { 
-        averageRating: parseFloat(result[0].averageRating.toFixed(1)), 
-        totalReviews: result[0].totalReviews 
-      } 
-    : { 
-        averageRating: 0, 
-        totalReviews: 0 
-      };
+    ]);
+    
+    return result.length > 0 
+      ? { 
+          averageRating: parseFloat(result[0].averageRating.toFixed(1)), 
+          totalReviews: result[0].totalReviews 
+        } 
+      : { 
+          averageRating: 0, 
+          totalReviews: 0 
+        };
+  } catch (error) {
+    console.error('Error in getAverageRating:', error);
+    return { 
+      averageRating: 0, 
+      totalReviews: 0 
+    };
+  }
 };
 
 // Static method to get top rated media

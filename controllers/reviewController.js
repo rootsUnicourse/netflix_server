@@ -38,9 +38,12 @@ exports.createReview = async (req, res) => {
       return res.status(404).json({ message: 'Media not found' });
     }
     
+    // Convert userId to ObjectId
+    const userId = new mongoose.Types.ObjectId(req.user.userId);
+    
     // Check if user already has a review for this media
     const existingReview = await Review.findOne({ 
-      user: req.user._id, 
+      user: userId, 
       media: mediaId 
     });
     
@@ -52,7 +55,7 @@ exports.createReview = async (req, res) => {
     
     // Create new review
     const review = new Review({
-      user: req.user._id,
+      user: userId,
       profile: profileId,
       media: mediaId,
       rating: rating || 0,
@@ -89,16 +92,19 @@ exports.getMediaReviews = async (req, res) => {
       return res.status(404).json({ message: 'Media not found' });
     }
     
+    // Convert userId to ObjectId if user is logged in
+    const userId = req.user ? new mongoose.Types.ObjectId(req.user.userId) : null;
+    
     // Build query
     const query = { 
       media: mediaId,
       // If user is not logged in or viewing someone else's reviews, only show public reviews
-      ...((!req.user || req.query.userId !== req.user._id.toString()) && { isPublic: true })
+      ...((!userId || req.query.userId !== userId.toString()) && { isPublic: true })
     };
     
     // If viewing a specific user's reviews
     if (req.query.userId) {
-      query.user = req.query.userId;
+      query.user = new mongoose.Types.ObjectId(req.query.userId);
     }
     
     // Build sort object
@@ -143,14 +149,14 @@ exports.getMediaReviews = async (req, res) => {
 // Get all reviews by a user
 exports.getUserReviews = async (req, res) => {
   try {
-    const userId = req.params.userId || req.user._id;
+    const userId = req.params.userId ? new mongoose.Types.ObjectId(req.params.userId) : new mongoose.Types.ObjectId(req.user.userId);
     const { page = 1, limit = 10, mediaType } = req.query;
     
     // Build query
     const query = { 
       user: userId,
       // If user is not logged in or viewing someone else's reviews, only show public reviews
-      ...((!req.user || userId !== req.user._id.toString()) && { isPublic: true })
+      ...((!req.user || userId.toString() !== new mongoose.Types.ObjectId(req.user.userId).toString()) && { isPublic: true })
     };
     
     // Filter by media type if specified
@@ -200,8 +206,11 @@ exports.getReviewById = async (req, res) => {
       return res.status(404).json({ message: 'Review not found' });
     }
     
+    // Convert userId to ObjectId for comparison
+    const userId = req.user ? new mongoose.Types.ObjectId(req.user.userId) : null;
+    
     // Check if review is private and not owned by the requesting user
-    if (!review.isPublic && (!req.user || review.user._id.toString() !== req.user._id.toString())) {
+    if (!review.isPublic && (!userId || review.user._id.toString() !== userId.toString())) {
       return res.status(403).json({ message: 'This review is private' });
     }
     
@@ -225,8 +234,11 @@ exports.updateReview = async (req, res) => {
       return res.status(404).json({ message: 'Review not found' });
     }
     
+    // Convert userId to ObjectId for comparison
+    const userId = new mongoose.Types.ObjectId(req.user.userId);
+    
     // Check if user owns the review
-    if (review.user.toString() !== req.user._id.toString()) {
+    if (review.user.toString() !== userId.toString()) {
       return res.status(403).json({ message: 'You can only update your own reviews' });
     }
     
@@ -265,8 +277,11 @@ exports.deleteReview = async (req, res) => {
       return res.status(404).json({ message: 'Review not found' });
     }
     
+    // Convert userId to ObjectId for comparison
+    const userId = new mongoose.Types.ObjectId(req.user.userId);
+    
     // Check if user owns the review or is an admin
-    if (review.user.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+    if (review.user.toString() !== userId.toString() && req.user.role !== 'admin') {
       return res.status(403).json({ message: 'You can only delete your own reviews' });
     }
     
