@@ -5,4 +5,6 @@ const ProfileSchema = new mongoose.Schema({
     avatar: { type: String, required: true },
 }, { timestamps: true });
 
-module.exports = ProfileSchema;
+const Profile = mongoose.model('Profile', ProfileSchema);
+
+module.exports = Profile;

@@ -1,7 +1,10 @@
 // server/models/User.js
 const mongoose = require('mongoose');
-const ProfileSchema = require('./Profile');
+const Profile = require('./Profile');
 const bcrypt = require('bcrypt');
+
+// Get just the schema definition from the Profile model
+const ProfileSchema = Profile.schema;
 
 const userSchema = new mongoose.Schema({
   emailOrPhone: {

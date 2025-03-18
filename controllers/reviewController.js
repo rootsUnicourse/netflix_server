@@ -1,6 +1,7 @@
 const Review = require('../models/Review');
 const Media = require('../models/Media');
 const mongoose = require('mongoose');
+const User = require('../models/User');
 
 // Helper function to update media ratings
 const updateMediaRatings = async (mediaId) => {
@@ -123,12 +124,57 @@ exports.getMediaReviews = async (req, res) => {
     const skip = (Number(page) - 1) * Number(limit);
     
     // Execute query with population
-    const reviews = await Review.find(query)
+    let reviews = await Review.find(query)
       .sort(sortObj)
       .skip(skip)
       .limit(Number(limit))
-      .populate('user', 'emailOrPhone')
-      .populate('profile', 'name avatar');
+      .populate('user', 'emailOrPhone profiles')
+      .populate('media', 'title posterPath type');
+    
+    // Process reviews to include profile data from the user document
+    const processedReviews = await Promise.all(reviews.map(async (review) => {
+      const reviewObj = review.toObject();
+      
+      try {
+        // Get user object from populated data or find the user
+        const user = review.user;
+        
+        if (user && user.profiles && user.profiles.length > 0) {
+          // Find the matching profile by ID from the user's profiles array
+          const profileId = review.profile.toString();
+          const profileData = user.profiles.find(p => p._id.toString() === profileId);
+          
+          if (profileData) {
+            reviewObj.profile = {
+              _id: profileData._id,
+              name: profileData.name,
+              avatar: profileData.avatar
+            };
+          } else {
+            // If profile not found in user's profiles, use default
+            reviewObj.profile = {
+              name: 'Unknown User',
+              avatar: '/default-avatar.png'
+            };
+          }
+        } else {
+          // If user has no profiles, use default
+          reviewObj.profile = {
+            name: 'Unknown User',
+            avatar: '/default-avatar.png'
+          };
+        }
+      } catch (err) {
+        console.error('Error processing review profile:', err.message);
+        // If error occurs, use default
+        reviewObj.profile = {
+          name: 'Unknown User',
+          avatar: '/default-avatar.png'
+        };
+      }
+      
+      return reviewObj;
+    }));
     
     // Get total count for pagination
     const total = await Review.countDocuments(query);
@@ -138,7 +184,7 @@ exports.getMediaReviews = async (req, res) => {
       totalPages: Math.ceil(total / Number(limit)),
       totalReviews: total,
       averageRating: media.userRating.average,
-      reviews
+      reviews: processedReviews
     });
   } catch (error) {
     console.error('Error in getMediaReviews:', error.message);
@@ -170,12 +216,57 @@ exports.getUserReviews = async (req, res) => {
     const skip = (Number(page) - 1) * Number(limit);
     
     // Execute query with population
-    const reviews = await Review.find(query)
+    let reviews = await Review.find(query)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(Number(limit))
       .populate('media', 'title posterPath type')
-      .populate('profile', 'name avatar');
+      .populate('user', 'emailOrPhone profiles');
+    
+    // Process reviews to include profile data from the user document
+    const processedReviews = await Promise.all(reviews.map(async (review) => {
+      const reviewObj = review.toObject();
+      
+      try {
+        // Get user object from populated data or find the user
+        const user = review.user;
+        
+        if (user && user.profiles && user.profiles.length > 0) {
+          // Find the matching profile by ID from the user's profiles array
+          const profileId = review.profile.toString();
+          const profileData = user.profiles.find(p => p._id.toString() === profileId);
+          
+          if (profileData) {
+            reviewObj.profile = {
+              _id: profileData._id,
+              name: profileData.name,
+              avatar: profileData.avatar
+            };
+          } else {
+            // If profile not found in user's profiles, use default
+            reviewObj.profile = {
+              name: 'Unknown User',
+              avatar: '/default-avatar.png'
+            };
+          }
+        } else {
+          // If user has no profiles, use default
+          reviewObj.profile = {
+            name: 'Unknown User',
+            avatar: '/default-avatar.png'
+          };
+        }
+      } catch (err) {
+        console.error('Error processing review profile:', err.message);
+        // If error occurs, use default
+        reviewObj.profile = {
+          name: 'Unknown User',
+          avatar: '/default-avatar.png'
+        };
+      }
+      
+      return reviewObj;
+    }));
     
     // Get total count for pagination
     const total = await Review.countDocuments(query);
@@ -184,7 +275,7 @@ exports.getUserReviews = async (req, res) => {
       page: Number(page),
       totalPages: Math.ceil(total / Number(limit)),
       totalReviews: total,
-      reviews
+      reviews: processedReviews
     });
   } catch (error) {
     console.error('Error in getUserReviews:', error.message);
@@ -198,8 +289,7 @@ exports.getReviewById = async (req, res) => {
     const { reviewId } = req.params;
     
     const review = await Review.findById(reviewId)
-      .populate('user', 'emailOrPhone')
-      .populate('profile', 'name avatar')
+      .populate('user', 'emailOrPhone profiles')
       .populate('media', 'title posterPath type');
     
     if (!review) {
@@ -214,7 +304,48 @@ exports.getReviewById = async (req, res) => {
       return res.status(403).json({ message: 'This review is private' });
     }
     
-    res.status(200).json(review);
+    // Process review to include profile data from the user document
+    const reviewObj = review.toObject();
+    
+    try {
+      // Get user object from populated data or find the user
+      const user = review.user;
+      
+      if (user && user.profiles && user.profiles.length > 0) {
+        // Find the matching profile by ID from the user's profiles array
+        const profileId = review.profile.toString();
+        const profileData = user.profiles.find(p => p._id.toString() === profileId);
+        
+        if (profileData) {
+          reviewObj.profile = {
+            _id: profileData._id,
+            name: profileData.name,
+            avatar: profileData.avatar
+          };
+        } else {
+          // If profile not found in user's profiles, use default
+          reviewObj.profile = {
+            name: 'Unknown User',
+            avatar: '/default-avatar.png'
+          };
+        }
+      } else {
+        // If user has no profiles, use default
+        reviewObj.profile = {
+          name: 'Unknown User',
+          avatar: '/default-avatar.png'
+        };
+      }
+    } catch (err) {
+      console.error('Error processing review profile:', err.message);
+      // If error occurs, use default
+      reviewObj.profile = {
+        name: 'Unknown User',
+        avatar: '/default-avatar.png'
+      };
+    }
+    
+    res.status(200).json(reviewObj);
   } catch (error) {
     console.error('Error in getReviewById:', error.message);
     res.status(500).json({ message: 'Server error', error: error.message });
