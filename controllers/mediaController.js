@@ -491,8 +491,6 @@ exports.getMediaByTmdbIds = async (req, res) => {
       return res.status(400).json({ message: 'Please provide an array of TMDB IDs' });
     }
     
-    console.log('Fetching media with TMDB IDs:', ids);
-    
     // Convert string IDs to numbers for comparison
     const numericIds = ids.map(id => parseInt(id));
     
@@ -504,8 +502,6 @@ exports.getMediaByTmdbIds = async (req, res) => {
     const sortedMedia = media.sort((a, b) => {
       return numericIds.indexOf(parseInt(a.tmdbId)) - numericIds.indexOf(parseInt(b.tmdbId));
     });
-    
-    console.log(`Found ${sortedMedia.length} of ${numericIds.length} requested media items`);
     
     // Return the data in the standard format expected by the client
     return res.json({
