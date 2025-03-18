@@ -452,4 +452,70 @@ exports.markShowsAsPopularInIsrael = async (req, res) => {
     console.error('Error in markShowsAsPopularInIsrael:', error.message);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
+};
+
+// Get animation media
+exports.getAnimationMedia = async (req, res) => {
+  try {
+    const { limit = 15 } = req.query;
+    
+    // Build query for animation content - genre ID 16 for animation
+    const query = {
+      genres: "Animation"
+    };
+    
+    // Execute query
+    const animationMedia = await Media.find(query)
+      .sort({ popularity: -1 })
+      .limit(Number(limit))
+      .select('_id title type posterPath backdropPath popularity overview');
+    
+    res.status(200).json({
+      results: animationMedia,
+      totalResults: animationMedia.length,
+      page: 1,
+      totalPages: 1
+    });
+  } catch (error) {
+    console.error('Error in getAnimationMedia:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Get media by specific TMDB IDs
+exports.getMediaByTmdbIds = async (req, res) => {
+  try {
+    const { ids } = req.body;
+    
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ message: 'Please provide an array of TMDB IDs' });
+    }
+    
+    console.log('Fetching media with TMDB IDs:', ids);
+    
+    // Convert string IDs to numbers for comparison
+    const numericIds = ids.map(id => parseInt(id));
+    
+    const media = await Media.find({ 
+      tmdbId: { $in: numericIds } 
+    }).limit(50);
+    
+    // Sort the results to match the order of the provided IDs
+    const sortedMedia = media.sort((a, b) => {
+      return numericIds.indexOf(parseInt(a.tmdbId)) - numericIds.indexOf(parseInt(b.tmdbId));
+    });
+    
+    console.log(`Found ${sortedMedia.length} of ${numericIds.length} requested media items`);
+    
+    // Return the data in the standard format expected by the client
+    return res.json({
+      results: sortedMedia,
+      totalResults: sortedMedia.length,
+      page: 1,
+      totalPages: 1
+    });
+  } catch (error) {
+    console.error('Error fetching media by TMDB IDs:', error);
+    res.status(500).json({ message: 'Server error fetching media by TMDB IDs' });
+  }
 }; 

@@ -54,6 +54,12 @@ router.patch('/ratings/:mediaId', protect, isAdmin, mediaController.updateUserRa
 // Get top shows in Israel
 router.get('/top-shows-israel', mediaController.getTopShowsInIsrael);
 
+// Get animation media
+router.get('/animation', mediaController.getAnimationMedia);
+
+// Get media by specific TMDB IDs
+router.post('/by-tmdb-ids', mediaController.getMediaByTmdbIds);
+
 // Mark shows as popular in Israel (admin only)
 router.post('/mark-popular-israel', protect, isAdmin, mediaController.markShowsAsPopularInIsrael);
 
