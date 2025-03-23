@@ -12,6 +12,15 @@ router.get('/id/:id', mediaController.getMediaById);
 // Get media by TMDB ID and type
 router.get('/tmdb/:type/:tmdbId', mediaController.getMediaByTMDBId);
 
+// Check if media exists by TMDB ID
+router.get('/exists/:tmdbId', mediaController.checkMediaExists);
+
+// Direct search to TMDB for the admin interface
+router.get('/tmdb-search', mediaController.searchTmdbForAdmin);
+
+// Get TMDB details without storing (for admin interface)
+router.get('/tmdb-details/:type/:tmdbId', mediaController.getTmdbDetailsWithoutStoring);
+
 // Search media in TMDB
 router.get('/search', mediaController.searchMedia);
 
@@ -62,5 +71,8 @@ router.post('/by-tmdb-ids', mediaController.getMediaByTmdbIds);
 
 // Mark shows as popular in Israel (admin only)
 router.post('/mark-popular-israel', protect, isAdmin, mediaController.markShowsAsPopularInIsrael);
+
+// Create new media (admin only)
+router.post('/', protect, isAdmin, mediaController.createMedia);
 
 module.exports = router; 

@@ -55,18 +55,46 @@ exports.getMediaByTMDBId = async (req, res) => {
 // Search media
 exports.searchMedia = async (req, res) => {
   try {
-    const { query, page = 1 } = req.query;
+    const { query, page = 1, external = false } = req.query;
     
     if (!query) {
       return res.status(400).json({ message: 'Search query is required' });
     }
     
+    // Get results from TMDB
     const results = await tmdbService.searchMedia(query, Number(page));
     
     // Return only movies and TV shows from the results
-    const filteredResults = results.results.filter(
+    let filteredResults = results.results.filter(
       (item) => item.media_type === 'movie' || item.media_type === 'tv'
     );
+    
+    // If external search isn't explicitly requested, we're done
+    if (external !== 'true') {
+      return res.status(200).json({
+        page: results.page,
+        totalPages: results.total_pages,
+        totalResults: results.total_results,
+        results: filteredResults,
+      });
+    }
+    
+    // For external=true, check which media already exist in our database
+    // and mark them accordingly
+    const tmdbIds = filteredResults.map(item => item.id);
+    
+    // Check which IDs already exist in our database
+    const existingMedia = await Media.find({ 
+      tmdbId: { $in: tmdbIds } 
+    }).select('tmdbId');
+    
+    const existingIds = existingMedia.map(item => item.tmdbId);
+    
+    // Add flag to results indicating if they already exist in our database
+    filteredResults = filteredResults.map(item => ({
+      ...item,
+      exists_in_database: existingIds.includes(item.id)
+    }));
     
     res.status(200).json({
       page: results.page,
@@ -513,5 +541,197 @@ exports.getMediaByTmdbIds = async (req, res) => {
   } catch (error) {
     console.error('Error fetching media by TMDB IDs:', error);
     res.status(500).json({ message: 'Server error fetching media by TMDB IDs' });
+  }
+};
+
+// Create new media entry manually (admin only)
+exports.createMedia = async (req, res) => {
+  try {
+    // Check if user is admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Not authorized to perform this action' });
+    }
+
+    const {
+      tmdbId, title, type, overview, posterPath, backdropPath, genres,
+      releaseDate, popularity, voteAverage, voteCount, runtime, seasons,
+      status, originalLanguage, cast, trailerKey, director, creators,
+      contentTags, maturityRating, additionalImages, featured, trending,
+      newRelease, popularInIsrael
+    } = req.body;
+
+    // Validate required fields
+    if (!tmdbId || !title || !type || !overview) {
+      return res.status(400).json({ 
+        message: 'Required fields missing: tmdbId, title, type, and overview are required' 
+      });
+    }
+
+    // Validate type
+    if (type !== 'movie' && type !== 'tv') {
+      return res.status(400).json({ 
+        message: 'Invalid type: must be "movie" or "tv"' 
+      });
+    }
+
+    // Check if media with this tmdbId already exists
+    const existingMedia = await Media.findOne({ tmdbId });
+    if (existingMedia) {
+      return res.status(409).json({ 
+        message: 'Media with this TMDB ID already exists',
+        mediaId: existingMedia._id
+      });
+    }
+
+    // Create new media document
+    const newMedia = new Media({
+      tmdbId,
+      title,
+      type,
+      overview,
+      posterPath,
+      backdropPath,
+      genres,
+      releaseDate,
+      popularity,
+      voteAverage,
+      voteCount,
+      runtime,
+      seasons,
+      status,
+      originalLanguage,
+      cast,
+      trailerKey,
+      director,
+      creators,
+      contentTags,
+      maturityRating,
+      additionalImages,
+      featured: featured || false,
+      trending: trending || false,
+      newRelease: newRelease || false,
+      popularInIsrael: popularInIsrael || false
+    });
+
+    const savedMedia = await newMedia.save();
+    
+    // Log the action
+    console.log(`Admin created new media: ${title} (TMDB ID: ${tmdbId})`);
+
+    res.status(201).json({
+      message: 'Media created successfully',
+      media: savedMedia
+    });
+  } catch (error) {
+    console.error('Error in createMedia:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Check if media with specific TMDB ID exists
+exports.checkMediaExists = async (req, res) => {
+  try {
+    const { tmdbId } = req.params;
+    
+    if (!tmdbId) {
+      return res.status(400).json({ message: 'TMDB ID is required' });
+    }
+    
+    const media = await Media.findOne({ tmdbId: Number(tmdbId) });
+    
+    res.status(200).json({
+      exists: !!media,
+      media: media ? {
+        _id: media._id,
+        title: media.title,
+        type: media.type,
+        tmdbId: media.tmdbId
+      } : null
+    });
+  } catch (error) {
+    console.error('Error in checkMediaExists:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Direct search to TMDB for the admin interface
+exports.searchTmdbForAdmin = async (req, res) => {
+  try {
+    const { query, page = 1 } = req.query;
+    
+    if (!query) {
+      return res.status(400).json({ message: 'Search query is required' });
+    }
+    
+    // Get results directly from TMDB
+    const results = await tmdbService.searchMedia(query, Number(page));
+    
+    // Return only movies and TV shows from the results
+    let filteredResults = results.results.filter(
+      (item) => item.media_type === 'movie' || item.media_type === 'tv'
+    );
+    
+    // Check which media already exist in our database
+    if (filteredResults.length > 0) {
+      const tmdbIds = filteredResults.map(item => item.id);
+      
+      // Find all media that already exist in our database
+      const existingMedia = await Media.find({ 
+        tmdbId: { $in: tmdbIds } 
+      }).select('tmdbId');
+      
+      const existingIds = existingMedia.map(item => item.tmdbId);
+      
+      // Mark existing media
+      filteredResults = filteredResults.map(item => ({
+        ...item,
+        exists_in_database: existingIds.includes(item.id)
+      }));
+    }
+    
+    res.status(200).json({
+      page: results.page,
+      totalPages: results.total_pages,
+      totalResults: results.total_results,
+      results: filteredResults
+    });
+  } catch (error) {
+    console.error('Error in searchTmdbForAdmin:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Get TMDB details without storing (for admin interface)
+exports.getTmdbDetailsWithoutStoring = async (req, res) => {
+  try {
+    const { tmdbId, type } = req.params;
+    
+    if (!tmdbId || !type || (type !== 'movie' && type !== 'tv')) {
+      return res.status(400).json({ message: 'Invalid parameters. Required: tmdbId and type (movie or tv)' });
+    }
+    
+    let tmdbData;
+    let transformedData;
+    
+    if (type === 'movie') {
+      // Fetch movie data from TMDB without storing
+      tmdbData = await tmdbService.getMovieDetails(Number(tmdbId));
+      transformedData = tmdbService.transformMovieData(tmdbData);
+    } else {
+      // Fetch TV show data from TMDB without storing
+      tmdbData = await tmdbService.getTVShowDetails(Number(tmdbId));
+      transformedData = tmdbService.transformTVData(tmdbData);
+    }
+    
+    // Check if this media already exists in our database
+    const existingMedia = await Media.findOne({ tmdbId: Number(tmdbId) });
+    
+    // Add flag to inform the client if this media already exists
+    transformedData.exists_in_database = !!existingMedia;
+    
+    res.status(200).json(transformedData);
+  } catch (error) {
+    console.error('Error in getTmdbDetailsWithoutStoring:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
 }; 
