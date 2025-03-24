@@ -14,7 +14,12 @@ const { logSystemEvent } = require('./services/logService');
 
 const app = express();
 
-app.use(cors());
+// Set up CORS with specific origin to allow credentials
+app.use(cors({
+  origin: 'http://localhost:3000', // Your React client's origin
+  credentials: true // Allow cookies/credentials
+}));
+
 app.use(express.json());
 
 // Log all requests middleware

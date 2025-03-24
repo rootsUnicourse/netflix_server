@@ -75,4 +75,7 @@ router.post('/mark-popular-israel', protect, isAdmin, mediaController.markShowsA
 // Create new media (admin only)
 router.post('/', protect, isAdmin, mediaController.createMedia);
 
+// Get AI-powered personalized media recommendations
+router.get('/ai-recommendations', mediaController.getAIRecommendations);
+
 module.exports = router; 

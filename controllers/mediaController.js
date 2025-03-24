@@ -2,6 +2,9 @@ const Media = require('../models/Media');
 const tmdbService = require('../services/tmdbService');
 const Review = require('../models/Review');
 const refreshAllMediaData = require('../scripts/refreshMediaData');
+const aiRecommendationService = require('../services/aiRecommendationService');
+const User = require('../models/User');
+const mongoose = require('mongoose');
 
 // Get media by MongoDB ID
 exports.getMediaById = async (req, res) => {
@@ -732,6 +735,173 @@ exports.getTmdbDetailsWithoutStoring = async (req, res) => {
     res.status(200).json(transformedData);
   } catch (error) {
     console.error('Error in getTmdbDetailsWithoutStoring:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Get AI-powered personalized recommendations based on user's watchlist
+exports.getAIRecommendations = async (req, res) => {
+  try {
+    const { mediaType = 'all', limit = 10 } = req.query;
+    let userId = null;
+    
+    // Check if user is authenticated
+    if (req.user && req.user._id) {
+      userId = req.user._id;
+    }
+
+    // Validate mediaType
+    if (mediaType !== 'all' && mediaType !== 'movie' && mediaType !== 'tv') {
+      return res.status(400).json({ 
+        message: 'Invalid mediaType. Must be "all", "movie", or "tv"' 
+      });
+    }
+
+    // Get user's watchlist
+    let watchlist = [];
+    
+    if (userId) {
+      // If user is authenticated, get their watchlist
+      const user = await User.findById(userId)
+        .populate('watchlist')
+        .select('watchlist');
+        
+      if (user && user.watchlist) {
+        watchlist = user.watchlist;
+      }
+    }
+
+    // Get AI-powered recommendations
+    const tmdbRecommendations = await aiRecommendationService.getPersonalizedRecommendations(
+      watchlist,
+      mediaType,
+      parseInt(limit, 10)
+    );
+
+    // Transform TMDB recommendations to our format
+    const processedRecommendations = await Promise.all(
+      tmdbRecommendations.map(async (item) => {
+        try {
+          // Check if media already exists in our database
+          const existingMedia = await Media.findOne({ 
+            tmdbId: item.id,
+            type: item.media_type
+          });
+
+          if (existingMedia) {
+            return existingMedia;
+          }
+
+          // If not in our database, fetch full details from TMDB and transform it
+          let tmdbData;
+          let transformedData;
+          
+          if (item.media_type === 'movie') {
+            // Fetch movie data from TMDB
+            tmdbData = await tmdbService.getMovieDetails(item.id);
+            transformedData = tmdbService.transformMovieData(tmdbData);
+          } else if (item.media_type === 'tv') {
+            // Fetch TV show data from TMDB
+            tmdbData = await tmdbService.getTVShowDetails(item.id);
+            transformedData = tmdbService.transformTVData(tmdbData);
+          } else {
+            return null;
+          }
+          
+          // Add the score from the AI recommendation
+          transformedData.score = item.score;
+          
+          // Create a temporary media object (not saved to database)
+          // This ensures it has all the fields expected by the frontend
+          const tempMedia = new Media(transformedData);
+          
+          // Convert to plain object (removes Mongoose-specific properties)
+          const mediaObject = tempMedia.toObject();
+          
+          // Add _id field for frontend compatibility
+          mediaObject._id = new mongoose.Types.ObjectId();
+          
+          return mediaObject;
+        } catch (itemError) {
+          console.error(`Error processing recommendation item ${item.id}:`, itemError.message);
+          
+          // Return a minimal version if full details fetching fails
+          if (item.media_type === 'movie') {
+            return {
+              _id: new mongoose.Types.ObjectId(),
+              tmdbId: item.id,
+              title: item.title || 'Unknown Title',
+              type: 'movie',
+              overview: item.overview || 'No overview available',
+              posterPath: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null,
+              backdropPath: item.backdrop_path ? `https://image.tmdb.org/t/p/original${item.backdrop_path}` : null,
+              releaseDate: item.release_date ? new Date(item.release_date) : null,
+              popularity: item.popularity || 0,
+              voteAverage: item.vote_average || 0,
+              voteCount: item.vote_count || 0,
+              runtime: null,
+              status: 'Released',
+              originalLanguage: item.original_language || 'en',
+              cast: [],
+              trailerKey: null,
+              director: null,
+              contentTags: [],
+              maturityRating: 'Not Rated',
+              additionalImages: [],
+              genres: item.genre_ids?.map(id => aiRecommendationService.constructor.getGenreName(id, 'movie')) || [],
+              featured: false,
+              trending: false,
+              newRelease: false,
+              popularInIsrael: false,
+              score: item.score || 0,
+              userRating: { average: 0, count: 0 }
+            };
+          } else if (item.media_type === 'tv') {
+            return {
+              _id: new mongoose.Types.ObjectId(),
+              tmdbId: item.id,
+              title: item.name || 'Unknown Title',
+              type: 'tv',
+              overview: item.overview || 'No overview available',
+              posterPath: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null,
+              backdropPath: item.backdrop_path ? `https://image.tmdb.org/t/p/original${item.backdrop_path}` : null,
+              releaseDate: item.first_air_date ? new Date(item.first_air_date) : null,
+              popularity: item.popularity || 0,
+              voteAverage: item.vote_average || 0,
+              voteCount: item.vote_count || 0,
+              seasons: null,
+              seasonData: [],
+              status: 'Released',
+              originalLanguage: item.original_language || 'en',
+              cast: [],
+              trailerKey: null,
+              creators: [],
+              contentTags: [],
+              maturityRating: 'Not Rated',
+              additionalImages: [],
+              genres: item.genre_ids?.map(id => aiRecommendationService.constructor.getGenreName(id, 'tv')) || [],
+              featured: false,
+              trending: false,
+              newRelease: false,
+              popularInIsrael: false,
+              score: item.score || 0,
+              userRating: { average: 0, count: 0 }
+            };
+          }
+          return null;
+        }
+      })
+    );
+
+    // Filter out null values
+    const finalRecommendations = processedRecommendations.filter(item => item !== null);
+
+    res.status(200).json({
+      results: finalRecommendations,
+      totalResults: finalRecommendations.length
+    });
+  } catch (error) {
+    console.error('Error in getAIRecommendations:', error.message);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 }; 
