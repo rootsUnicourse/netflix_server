@@ -115,7 +115,6 @@ class AIRecommendationService {
   }
   
   // Helper method to convert genre ID to name
-  // Note: This is a simplified version - in a real app, you'd get the full genre list from TMDb
   static getGenreName(genreId, mediaType = 'movie') {
     // Common movie genres
     const movieGenres = {
