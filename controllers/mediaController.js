@@ -742,20 +742,21 @@ exports.getTmdbDetailsWithoutStoring = async (req, res) => {
 // Get AI-powered personalized recommendations based on user's watchlist
 exports.getAIRecommendations = async (req, res) => {
   try {
-    // Check if user is logged in
-    const userId = req.user ? req.user.userId : null;
+    const { mediaType = 'all', limit = 10 } = req.query;
+    let userId = null;
     
-    // Get query parameters with defaults
-    const { mediaType = 'all', limit = 10, includeSeasonData = false } = req.query;
-    
-    console.log(`Getting AI recommendations with params: mediaType=${mediaType}, limit=${limit}, includeSeasonData=${includeSeasonData}`);
-    
-    // Validate mediaType
-    const validMediaTypes = ['all', 'movie', 'tv'];
-    if (!validMediaTypes.includes(mediaType)) {
-      return res.status(400).json({ message: `Invalid mediaType: ${mediaType}. Must be one of: ${validMediaTypes.join(', ')}` });
+    // Check if user is authenticated
+    if (req.user && req.user._id) {
+      userId = req.user._id;
     }
-    
+
+    // Validate mediaType
+    if (mediaType !== 'all' && mediaType !== 'movie' && mediaType !== 'tv') {
+      return res.status(400).json({ 
+        message: 'Invalid mediaType. Must be "all", "movie", or "tv"' 
+      });
+    }
+
     // Get user's watchlist
     let watchlist = [];
     
@@ -782,32 +783,10 @@ exports.getAIRecommendations = async (req, res) => {
       tmdbRecommendations.map(async (item) => {
         try {
           // Check if media already exists in our database
-          let existingMedia = await Media.findOne({ 
+          const existingMedia = await Media.findOne({ 
             tmdbId: item.id,
             type: item.media_type
           });
-
-          // If it exists and it's a TV show and we need to include season data
-          if (existingMedia && item.media_type === 'tv' && includeSeasonData === 'true' && 
-              (!existingMedia.seasonData || existingMedia.seasonData.length === 0)) {
-            // Try to fetch all season data for this TV show
-            try {
-              console.log(`Fetching season data for TV show: ${existingMedia.title} (ID: ${existingMedia.tmdbId})`);
-              const seasonData = await tmdbService.fetchAllTVShowSeasons(existingMedia.tmdbId);
-              
-              // Update the existing media with season data
-              existingMedia = await Media.findByIdAndUpdate(
-                existingMedia._id,
-                { seasonData },
-                { new: true }
-              );
-              
-              console.log(`Updated season data for ${existingMedia.title}, found ${seasonData.length} seasons`);
-            } catch (seasonError) {
-              console.error(`Error fetching season data for TV show ${existingMedia.tmdbId}:`, seasonError.message);
-              // Continue without season data if there's an error
-            }
-          }
 
           if (existingMedia) {
             return existingMedia;
