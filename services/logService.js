@@ -43,7 +43,20 @@ const getSystemLogs = async (filters = {}, page = 1, limit = 20) => {
     
     // Apply filters if provided
     if (filters.level) query.level = filters.level;
-    if (filters.action) query.action = { $regex: filters.action, $options: 'i' };
+    
+    // Handle action filters
+    if (filters.action && filters.excludeAction) {
+      // If both are specified, use $and to combine them
+      query.$and = [
+        { action: { $regex: filters.action, $options: 'i' } },
+        { action: { $ne: filters.excludeAction } }
+      ];
+    } else if (filters.action) {
+      query.action = { $regex: filters.action, $options: 'i' };
+    } else if (filters.excludeAction) {
+      query.action = { $ne: filters.excludeAction };
+    }
+    
     if (filters.userId) query.userId = filters.userId;
     if (filters.startDate && filters.endDate) {
       query.createdAt = {

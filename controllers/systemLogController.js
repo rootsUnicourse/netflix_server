@@ -8,11 +8,12 @@ const SystemLog = require('../models/SystemLog');
  */
 exports.getLogs = async (req, res) => {
   try {
-    const { page = 1, limit = 20, level, action, userId, startDate, endDate } = req.query;
+    const { page = 1, limit = 20, level, action, userId, startDate, endDate, excludeAction } = req.query;
     
     const filters = {};
     if (level) filters.level = level;
     if (action) filters.action = action;
+    if (excludeAction) filters.excludeAction = excludeAction;
     if (userId) filters.userId = userId;
     if (startDate && endDate) {
       filters.startDate = startDate;
