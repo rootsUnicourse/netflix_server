@@ -21,11 +21,7 @@ const userSchema = new mongoose.Schema({
     default: 'user', 
     enum: ['user', 'admin']
   },
-  profiles: [ProfileSchema],
-  watchlist: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Media'
-  }]
+  profiles: [ProfileSchema]
 });
 
 // Hash password before saving

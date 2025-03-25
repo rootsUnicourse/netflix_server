@@ -16,7 +16,7 @@ exports.addProfile = async (req, res) => {
         }
 
         // Add new profile
-        user.profiles.push({ name, avatar });
+        user.profiles.push({ name, avatar, watchlist: [] });
         await user.save();
         
         res.json(user.profiles);
@@ -86,16 +86,17 @@ exports.updateProfileName = async (req, res) => {
     }
 };
 
-// Add media to user's watchlist
+// Add media to profile's watchlist
 exports.addToWatchlist = async (req, res) => {
   try {
     console.log('Adding to watchlist - User info from token:', req.user);
     console.log('Adding to watchlist - Request body:', req.body);
     
-    const { mediaId } = req.body;
+    const { mediaId, profileId } = req.body;
     
-    if (!mediaId) {
-      return res.status(400).json({ message: 'Media ID is required' });
+    if (!mediaId || !profileId) {
+      console.log('Missing required fields:', { mediaId, profileId });
+      return res.status(400).json({ message: 'Media ID and Profile ID are required' });
     }
     
     const user = await User.findById(req.user.userId);
@@ -105,64 +106,146 @@ exports.addToWatchlist = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
     
+    // Find the specific profile
+    const profile = user.profiles.id(profileId);
+    if (!profile) {
+      console.log('Profile not found with ID:', profileId);
+      console.log('Available profiles:', user.profiles.map(p => p._id));
+      return res.status(404).json({ message: 'Profile not found' });
+    }
+    
+    console.log('Profile found:', profile.name);
+    
+    // Initialize watchlist array if it doesn't exist
+    if (!profile.watchlist) {
+      console.log('Initializing empty watchlist for profile');
+      profile.watchlist = [];
+    }
+    
     // Check if media is already in watchlist to avoid duplicates
-    if (user.watchlist.includes(mediaId)) {
+    const isAlreadyInWatchlist = profile.watchlist.some(id => id.toString() === mediaId);
+    console.log('Media already in watchlist?', isAlreadyInWatchlist);
+    
+    if (isAlreadyInWatchlist) {
       return res.status(400).json({ message: 'Media already in watchlist' });
     }
     
     // Add to watchlist
-    user.watchlist.push(mediaId);
+    profile.watchlist.push(mediaId);
     await user.save();
     
-    // Get populated watchlist to return
-    const populatedUser = await User.findById(req.user.userId).populate('watchlist');
+    console.log('Media added to watchlist. New watchlist size:', profile.watchlist.length);
     
-    res.status(200).json(populatedUser.watchlist);
+    // Get the watchlist for this profile with populated media objects
+    const Media = require('../models/Media');
+    const populatedWatchlist = await Media.find({
+      '_id': { $in: profile.watchlist }
+    });
+    
+    console.log('Populated watchlist count:', populatedWatchlist.length);
+    res.status(200).json(populatedWatchlist);
   } catch (error) {
     console.error('Error adding to watchlist:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
 
-// Remove media from user's watchlist
+// Remove media from profile's watchlist
 exports.removeFromWatchlist = async (req, res) => {
   try {
-    const { mediaId } = req.params;
+    console.log('Removing from watchlist - Params:', req.params);
+    const { mediaId, profileId } = req.params;
     
-    if (!mediaId) {
-      return res.status(400).json({ message: 'Media ID is required' });
+    if (!mediaId || !profileId) {
+      console.log('Missing required fields:', { mediaId, profileId });
+      return res.status(400).json({ message: 'Media ID and Profile ID are required' });
     }
     
     const user = await User.findById(req.user.userId);
+    console.log('User found from DB:', user ? 'Yes' : 'No');
     
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
     
+    // Find the specific profile
+    const profile = user.profiles.id(profileId);
+    if (!profile) {
+      console.log('Profile not found with ID:', profileId);
+      console.log('Available profiles:', user.profiles.map(p => p._id));
+      return res.status(404).json({ message: 'Profile not found' });
+    }
+    
+    console.log('Profile found:', profile.name);
+    console.log('Current watchlist size:', profile.watchlist ? profile.watchlist.length : 0);
+    
     // Remove from watchlist
-    user.watchlist = user.watchlist.filter(id => id.toString() !== mediaId);
+    if (profile.watchlist) {
+      const originalLength = profile.watchlist.length;
+      profile.watchlist = profile.watchlist.filter(id => id.toString() !== mediaId);
+      console.log(`Removed media from watchlist. Items filtered out: ${originalLength - profile.watchlist.length}`);
+    }
     await user.save();
     
-    // Get populated watchlist to return
-    const populatedUser = await User.findById(req.user.userId).populate('watchlist');
+    console.log('New watchlist size:', profile.watchlist.length);
     
-    res.status(200).json(populatedUser.watchlist);
+    // Get the watchlist for this profile with populated media objects
+    const Media = require('../models/Media');
+    const populatedWatchlist = await Media.find({
+      '_id': { $in: profile.watchlist }
+    });
+    
+    console.log('Populated watchlist count:', populatedWatchlist.length);
+    res.status(200).json(populatedWatchlist);
   } catch (error) {
     console.error('Error removing from watchlist:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
 
-// Get user's watchlist
+// Get profile's watchlist
 exports.getWatchlist = async (req, res) => {
   try {
-    const user = await User.findById(req.user.userId).populate('watchlist');
+    console.log('Getting watchlist - Params:', req.params);
+    const { profileId } = req.params;
+    
+    if (!profileId) {
+      console.log('Missing profile ID');
+      return res.status(400).json({ message: 'Profile ID is required' });
+    }
+    
+    const user = await User.findById(req.user.userId);
+    console.log('User found from DB:', user ? 'Yes' : 'No');
     
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
     
-    res.status(200).json(user.watchlist);
+    // Find the specific profile
+    const profile = user.profiles.id(profileId);
+    if (!profile) {
+      console.log('Profile not found with ID:', profileId);
+      console.log('Available profiles:', user.profiles.map(p => p._id));
+      return res.status(404).json({ message: 'Profile not found' });
+    }
+    
+    console.log('Profile found:', profile.name);
+    
+    // Get the watchlist for this profile
+    const watchlistIds = profile.watchlist || [];
+    console.log('Watchlist IDs count:', watchlistIds.length);
+    console.log('Watchlist IDs:', watchlistIds);
+    
+    // Populate the media information
+    const Media = require('../models/Media');
+    const populatedWatchlist = await Media.find({
+      '_id': { $in: watchlistIds }
+    });
+    
+    console.log('Populated watchlist count:', populatedWatchlist.length);
+    console.log('Populated IDs:', populatedWatchlist.map(item => item._id));
+    
+    res.status(200).json(populatedWatchlist);
   } catch (error) {
     console.error('Error getting watchlist:', error);
     res.status(500).json({ message: 'Server error', error: error.message });

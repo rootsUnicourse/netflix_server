@@ -17,9 +17,9 @@ router.get('/', protect, getProfiles);
 router.delete('/:profileId', protect, deleteProfile);
 router.put('/:profileId', protect, updateProfileName);
 
-// Watchlist routes
-router.get('/watchlist', protect, getWatchlist);
+// Watchlist routes - updated to be profile-specific
+router.get('/:profileId/watchlist', protect, getWatchlist);
 router.post('/watchlist', protect, addToWatchlist);
-router.delete('/watchlist/:mediaId', protect, removeFromWatchlist);
+router.delete('/:profileId/watchlist/:mediaId', protect, removeFromWatchlist);
 
 module.exports = router;
