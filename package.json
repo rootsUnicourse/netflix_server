@@ -14,7 +14,9 @@
     "check-tmdb": "node checkTMDBKey.js",
     "refresh-media": "node refreshMedia.js",
     "mark-popular-israel": "node markPopularInIsrael.js",
-    "update-episodes": "node updateTVShowEpisodes.js"
+    "update-episodes": "node updateTVShowEpisodes.js",
+    "update-missing-episodes": "node updateTVShowsWithMissingEpisodes.js",
+    "verify-tvshows": "node scripts/verifyAndFixTVShows.js"
   },
   "keywords": [],
   "author": "",

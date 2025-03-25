@@ -3,19 +3,37 @@ const mongoose = require('mongoose');
 const Media = require('./models/Media');
 const tmdbService = require('./services/tmdbService');
 
-async function updateTVShowEpisodes() {
+async function updateTVShowsWithMissingEpisodes() {
   try {
     // Connect to MongoDB
     await mongoose.connect(process.env.MONGO_URI);
     console.log('Connected to MongoDB');
 
-    // Get all TV shows from the database
-    const tvShows = await Media.find({ type: 'tv' });
-    console.log(`Found ${tvShows.length} TV shows in the database`);
+    // Find TV shows with missing or incomplete season data
+    const tvShows = await Media.find({ 
+      type: 'tv',
+      $or: [
+        { seasonData: { $exists: false } },
+        { seasonData: { $size: 0 } },
+        // Shows where seasonData exists but has fewer seasons than expected
+        {
+          $expr: {
+            $lt: [{ $size: "$seasonData" }, "$seasons"]
+          }
+        }
+      ]
+    });
+
+    console.log(`Found ${tvShows.length} TV shows with missing or incomplete season data`);
+
+    if (tvShows.length === 0) {
+      console.log('No TV shows need updating. All TV shows have complete season data.');
+      process.exit(0);
+      return;
+    }
 
     let successCount = 0;
     let errorCount = 0;
-    let skippedCount = 0;
 
     // Process each TV show
     for (let i = 0; i < tvShows.length; i++) {
@@ -23,25 +41,10 @@ async function updateTVShowEpisodes() {
       try {
         console.log(`[${i + 1}/${tvShows.length}] Processing show: ${show.title} (TMDB ID: ${show.tmdbId})`);
         
-        // If the show already has valid seasonData, confirm if we should update
-        if (show.seasonData && show.seasonData.length > 0) {
-          // Check if all expected seasons are present
-          if (show.seasonData.length >= show.seasons) {
-            const missingEpisodes = show.seasonData.some(season => 
-              !season.episodes || season.episodes.length === 0
-            );
-            
-            if (!missingEpisodes) {
-              console.log(`Season data already exists for ${show.title}. Skipping...`);
-              skippedCount++;
-              continue;
-            }
-          }
-          console.log(`Season data exists for ${show.title} but may be incomplete. Updating...`);
-        }
+        // Verify the number of seasons
+        console.log(`Show has ${show.seasons} seasons according to database. Attempting to fetch all season data...`);
         
-        // Always fetch season data to ensure we have the latest episode information
-        console.log(`Fetching season data for ${show.title}...`);
+        // Fetch all seasons data
         const seasonsData = await tmdbService.fetchAllTVShowSeasons(show.tmdbId, show.seasons);
         
         // Make sure we got valid season data
@@ -66,13 +69,12 @@ async function updateTVShowEpisodes() {
     }
 
     console.log('\n===== TV SHOW EPISODE UPDATE SUMMARY =====');
-    console.log(`Total TV shows: ${tvShows.length}`);
+    console.log(`Total TV shows needing updates: ${tvShows.length}`);
     console.log(`Successfully updated: ${successCount}`);
-    console.log(`Skipped (already had data): ${skippedCount}`);
     console.log(`Failed to update: ${errorCount}`);
     console.log('=========================================\n');
     
-    console.log('Finished updating TV show episodes');
+    console.log('Finished updating TV shows with missing episodes');
     process.exit(0);
   } catch (error) {
     console.error('Error:', error.message);
@@ -81,5 +83,5 @@ async function updateTVShowEpisodes() {
 }
 
 // Run the update function
-console.log('Starting TV Show Episodes Update Script...');
-updateTVShowEpisodes(); 
+console.log('Starting Update for TV Shows with Missing Episodes...');
+updateTVShowsWithMissingEpisodes(); 

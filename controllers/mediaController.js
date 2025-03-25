@@ -10,10 +10,29 @@ const mongoose = require('mongoose');
 exports.getMediaById = async (req, res) => {
   try {
     const { id } = req.params;
-    const media = await Media.findById(id);
+    let media = await Media.findById(id);
     
     if (!media) {
       return res.status(404).json({ message: 'Media not found' });
+    }
+
+    // For TV shows, check if we need to update episode data
+    if (media.type === 'tv') {
+      try {
+        // Always try to fetch latest data from TMDB for TV shows
+        const updatedMedia = await tmdbService.fetchAndStoreTV(media.tmdbId);
+        if (updatedMedia) {
+          media = updatedMedia;
+        }
+      } catch (fetchError) {
+        console.error('Error fetching latest data from TMDB:', fetchError);
+        // Continue with existing data if fetch fails
+      }
+    }
+    
+    // Ensure we have at least basic data even if TMDB fetch failed
+    if (!media.seasonData) {
+      media.seasonData = [];
     }
     
     res.status(200).json(media);
