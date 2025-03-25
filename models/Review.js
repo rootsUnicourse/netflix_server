@@ -44,8 +44,8 @@ const ReviewSchema = new Schema({
   }
 }, { timestamps: true });
 
-// Create compound index for user+media to ensure a user can only review a media item once
-ReviewSchema.index({ user: 1, media: 1 }, { unique: true });
+// Create compound index for user+profile+media to ensure a profile can only review a media item once
+ReviewSchema.index({ user: 1, profile: 1, media: 1 }, { unique: true });
 
 // Create indexes for common query patterns
 ReviewSchema.index({ media: 1, createdAt: -1 }); // Recent reviews for a media
