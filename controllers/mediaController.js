@@ -197,6 +197,7 @@ exports.getMedia = async (req, res) => {
     const { 
       type, 
       genre, 
+      genres,
       sort = 'popularity', 
       order = 'desc', 
       page = 1, 
@@ -213,7 +214,12 @@ exports.getMedia = async (req, res) => {
       filter.type = type;
     }
     
-    if (genre) {
+    if (genres) {
+      // Handle array of genres (using $in operator)
+      const genreArray = Array.isArray(genres) ? genres : [genres];
+      filter.genres = { $in: genreArray };
+    } else if (genre) {
+      // Backward compatibility for single genre
       filter.genres = genre;
     }
     
