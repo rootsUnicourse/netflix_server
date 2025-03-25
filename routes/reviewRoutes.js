@@ -10,7 +10,7 @@ router.get('/top-rated', reviewController.getTopRatedMedia);
 router.get('/my-reviews', protect, reviewController.getUserReviews);
 
 // Get all reviews for a specific media
-router.get('/media/:mediaId', reviewController.getMediaReviews);
+router.get('/media/:mediaId', protect, reviewController.getMediaReviews);
 
 // Get all reviews by a user
 // Public route for viewing a user's public reviews

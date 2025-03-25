@@ -86,7 +86,12 @@ exports.createReview = async (req, res) => {
 exports.getMediaReviews = async (req, res) => {
   try {
     const { mediaId } = req.params;
-    const { page = 1, limit = 10, sort = 'recent' } = req.query;
+    const { page = 1, limit = 10, sort = 'recent', includeNonPublic = 'false' } = req.query;
+    
+    console.log('\n--- getMediaReviews function called ---');
+    console.log('Query params:', req.query);
+    console.log('includeNonPublic param:', includeNonPublic, 'type:', typeof includeNonPublic);
+    console.log('MediaId:', mediaId);
     
     // Check if media exists
     const media = await Media.findById(mediaId);
@@ -97,12 +102,42 @@ exports.getMediaReviews = async (req, res) => {
     // Convert userId to ObjectId if user is logged in
     const userId = req.user ? new mongoose.Types.ObjectId(req.user.userId) : null;
     
+    // Debug user and role
+    console.log('User in request:', req.user);
+    console.log('User ID:', userId);
+    console.log('User role:', req.user?.role);
+    
     // Build query
     const query = { 
       media: mediaId,
-      // If user is not logged in or viewing someone else's reviews, only show public reviews
-      ...((!userId || req.query.userId !== userId.toString()) && { isPublic: true })
     };
+    
+    // Check if the user is an admin and includeNonPublic is true
+    const userRole = req.user?.role || '';
+    const isAdmin = userRole === 'admin';
+    
+    // Normalize includeNonPublic to a proper boolean check
+    const showNonPublic = includeNonPublic === 'true' || includeNonPublic === true;
+    
+    console.log('Is admin check:', isAdmin);
+    console.log('includeNonPublic normalized:', showNonPublic);
+    console.log('Admin with includeNonPublic:', isAdmin && showNonPublic);
+    
+    // If not an admin or includeNonPublic is false, only show public reviews
+    // Or if the user is viewing their own review, include it regardless of public status
+    if (!(isAdmin && showNonPublic)) {
+      // Only add the isPublic filter if not an admin requesting all reviews
+      query.$or = [
+        { isPublic: true },
+        // Include the user's own reviews even if not public
+        ...(userId ? [{ user: userId }] : [])
+      ];
+      console.log('Adding isPublic filter to query. User can only see public reviews and their own.');
+    } else {
+      console.log('Admin user, showing ALL reviews including non-public ones');
+    }
+    
+    console.log('Final query:', JSON.stringify(query));
     
     // If viewing a specific user's reviews
     if (req.query.userId) {
@@ -129,12 +164,23 @@ exports.getMediaReviews = async (req, res) => {
       .sort(sortObj)
       .skip(skip)
       .limit(Number(limit))
-      .populate('user', 'emailOrPhone profiles')
+      .populate('user', 'emailOrPhone profiles role')
       .populate('media', 'title posterPath type');
+    
+    // Log the count of reviews found
+    console.log(`Found ${reviews.length} reviews matching the query`);
+    
+    // Debug each review's public status
+    reviews.forEach(review => {
+      console.log(`Review ID: ${review._id}, User: ${review.user?._id}, isPublic: ${review.isPublic}, Content: "${review.content.substring(0, 20)}${review.content.length > 20 ? '...' : ''}"`);
+    });
     
     // Process reviews to include profile data from the user document
     const processedReviews = await Promise.all(reviews.map(async (review) => {
       const reviewObj = review.toObject();
+      
+      // Log isPublic status for debugging
+      console.log(`Processing review ID: ${review._id}, isPublic: ${review.isPublic}`);
       
       try {
         // Get user object from populated data or find the user
@@ -180,13 +226,19 @@ exports.getMediaReviews = async (req, res) => {
     // Get total count for pagination
     const total = await Review.countDocuments(query);
     
-    res.status(200).json({
+    // Prepare the response
+    const response = {
       page: Number(page),
       totalPages: Math.ceil(total / Number(limit)),
       totalReviews: total,
       averageRating: media.userRating.average,
       reviews: processedReviews
-    });
+    };
+    
+    console.log('Sending response with reviews count:', processedReviews.length);
+    console.log('--- getMediaReviews function completed ---\n');
+    
+    res.status(200).json(response);
   } catch (error) {
     console.error('Error in getMediaReviews:', error.message);
     res.status(500).json({ message: 'Server error', error: error.message });
