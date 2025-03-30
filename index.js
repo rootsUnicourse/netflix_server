@@ -16,7 +16,7 @@ const app = express();
 
 // Set up CORS with specific origin to allow credentials
 app.use(cors({
-  origin: 'http://localhost:3000', // Your React client's origin
+  origin: true, // Allow all origins
   credentials: true // Allow cookies/credentials
 }));
 
