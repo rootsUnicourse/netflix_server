@@ -9,6 +9,7 @@ const profileRoutes = require('./routes/profileRoutes');
 const mediaRoutes = require('./routes/mediaRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const tmdbRoutes = require('./routes/tmdbRoutes');
 const tmdbService = require('./services/tmdbService');
 const { logSystemEvent } = require('./services/logService');
 
@@ -98,6 +99,7 @@ app.use('/profiles', profileRoutes);
 app.use('/media', mediaRoutes);
 app.use('/reviews', reviewRoutes);
 app.use('/admin', adminRoutes);
+app.use('/tmdb', tmdbRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
