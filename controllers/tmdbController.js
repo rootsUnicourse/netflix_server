@@ -72,6 +72,208 @@ exports.getPopularMedia = async (req, res) => {
   }
 };
 
+// Get top shows in Israel
+exports.getTopShowsInIsrael = async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 10;
+    const apiKey = process.env.TMDB_API_KEY;
+    
+    if (!apiKey) {
+      return res.status(500).json({ message: 'TMDB API key is missing' });
+    }
+
+    // Fetch popular TV shows and movies from Israel
+    // We'll use discover API with region=IL parameter
+    const moviesResponse = await axios.get(`${TMDB_BASE_URL}/discover/movie`, {
+      params: {
+        api_key: apiKey,
+        language: 'en-US',
+        region: 'IL',
+        sort_by: 'popularity.desc',
+        include_adult: false,
+        page: 1,
+        'vote_count.gte': 50 // Ensure some minimum votes to get quality results
+      }
+    });
+
+    const tvShowsResponse = await axios.get(`${TMDB_BASE_URL}/discover/tv`, {
+      params: {
+        api_key: apiKey,
+        language: 'en-US',
+        sort_by: 'popularity.desc',
+        include_adult: false,
+        page: 1,
+        'vote_count.gte': 50, // Ensure some minimum votes
+        with_original_language: 'he,en' // Include Hebrew and English language shows
+      }
+    });
+
+    // Process the movies and TV shows
+    const movies = moviesResponse.data.results
+      .filter(movie => movie.poster_path && movie.backdrop_path)
+      .map(movie => ({
+        _id: `movie-${movie.id}`,
+        tmdbId: movie.id,
+        title: movie.title,
+        type: 'movie',
+        posterPath: getTMDBImageUrl(movie.poster_path),
+        backdropPath: getTMDBImageUrl(movie.backdrop_path),
+        overview: movie.overview,
+        releaseDate: movie.release_date,
+        voteAverage: movie.vote_average
+      }));
+
+    const tvShows = tvShowsResponse.data.results
+      .filter(show => show.poster_path && show.backdrop_path)
+      .map(show => ({
+        _id: `tv-${show.id}`,
+        tmdbId: show.id,
+        title: show.name,
+        type: 'tv',
+        posterPath: getTMDBImageUrl(show.poster_path),
+        backdropPath: getTMDBImageUrl(show.backdrop_path),
+        overview: show.overview,
+        releaseDate: show.first_air_date,
+        voteAverage: show.vote_average
+      }));
+
+    // Combine and get the top items
+    const topShows = [...movies, ...tvShows]
+      .sort((a, b) => b.voteAverage - a.voteAverage)
+      .slice(0, limit);
+
+    // If we don't have enough shows, fetch more using trending
+    if (topShows.length < limit) {
+      const trendingResponse = await axios.get(`${TMDB_BASE_URL}/trending/all/week`, {
+        params: {
+          api_key: apiKey
+        }
+      });
+
+      const trending = trendingResponse.data.results
+        .filter(item => item.poster_path && item.backdrop_path && !topShows.some(s => s.tmdbId === item.id))
+        .map(item => ({
+          _id: `${item.media_type}-${item.id}`,
+          tmdbId: item.id,
+          title: item.media_type === 'movie' ? item.title : item.name,
+          type: item.media_type,
+          posterPath: getTMDBImageUrl(item.poster_path),
+          backdropPath: getTMDBImageUrl(item.backdrop_path),
+          overview: item.overview,
+          releaseDate: item.media_type === 'movie' ? item.release_date : item.first_air_date,
+          voteAverage: item.vote_average
+        }));
+
+      // Add to our list until we reach the limit
+      for (let i = 0; i < trending.length && topShows.length < limit; i++) {
+        topShows.push(trending[i]);
+      }
+    }
+
+    // Get detailed information for each show to match getMediaDetails output format
+    const detailedShowPromises = topShows.map(async (show) => {
+      try {
+        const detailsUrl = `${TMDB_BASE_URL}/${show.type}/${show.tmdbId}`;
+        const detailsResponse = await axios.get(detailsUrl, {
+          params: {
+            api_key: apiKey,
+            language: 'en-US',
+            append_to_response: 'credits,images,videos'
+          }
+        });
+        
+        const details = detailsResponse.data;
+        
+        // Get content ratings/certifications
+        let maturityRating = 'NR';
+        try {
+          if (show.type === 'movie') {
+            const releaseDatesUrl = `${TMDB_BASE_URL}/movie/${show.tmdbId}/release_dates`;
+            const releaseDatesResponse = await axios.get(releaseDatesUrl, {
+              params: { api_key: apiKey }
+            });
+            const usReleases = releaseDatesResponse.data.results.find(r => r.iso_3166_1 === 'US');
+            if (usReleases && usReleases.release_dates && usReleases.release_dates.length > 0) {
+              maturityRating = usReleases.release_dates[0].certification || 'NR';
+            }
+          } else {
+            const contentRatingsUrl = `${TMDB_BASE_URL}/tv/${show.tmdbId}/content_ratings`;
+            const contentRatingsResponse = await axios.get(contentRatingsUrl, {
+              params: { api_key: apiKey }
+            });
+            const usRating = contentRatingsResponse.data.results.find(r => r.iso_3166_1 === 'US');
+            if (usRating) {
+              maturityRating = usRating.rating || 'NR';
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching ratings:', error.message);
+        }
+        
+        // Get three additional images
+        const backdropUrl = getTMDBImageUrl(details.backdrop_path, 'w500');
+        const posterUrl = getTMDBImageUrl(details.poster_path, 'w500');
+        const additionalImages = [
+          backdropUrl || posterUrl,
+          posterUrl || backdropUrl,
+          backdropUrl || posterUrl
+        ];
+        
+        // Try to get different images if available
+        if (details.images && details.images.backdrops && details.images.backdrops.length > 1) {
+          const backdrops = details.images.backdrops
+            .filter(img => img.file_path !== details.backdrop_path)
+            .slice(0, 2)
+            .map(img => getTMDBImageUrl(img.file_path, 'w500'));
+          
+          if (backdrops.length > 0) {
+            additionalImages[2] = backdrops[0];
+          }
+          
+          if (backdrops.length > 1) {
+            additionalImages[1] = backdrops[1];
+          }
+        }
+        
+        return {
+          _id: show._id,
+          tmdbId: show.tmdbId,
+          title: show.title,
+          type: show.type,
+          overview: show.overview,
+          posterPath: show.posterPath,
+          backdropPath: show.backdropPath,
+          releaseDate: show.releaseDate,
+          voteAverage: show.voteAverage,
+          genres: details.genres?.map(genre => genre.name) || [],
+          runtime: show.type === 'movie' ? (details.runtime || 90) : 
+                  (details.episode_run_time && details.episode_run_time.length > 0 ? 
+                  details.episode_run_time[0] : 30),
+          maturityRating: maturityRating,
+          additionalImages: additionalImages,
+          cast: details.credits?.cast?.slice(0, 15).map(actor => ({
+            id: actor.id,
+            name: actor.name,
+            character: actor.character,
+            profilePath: actor.profile_path ? getTMDBImageUrl(actor.profile_path, 'w185') : null
+          })) || []
+        };
+      } catch (error) {
+        console.error(`Error getting details for ${show.type} ${show.tmdbId}:`, error.message);
+        // Return the basic show info if we can't get details
+        return show;
+      }
+    });
+    
+    const detailedShows = await Promise.all(detailedShowPromises);
+    
+    res.json({ results: detailedShows });
+  } catch (error) {
+    console.error('Error fetching top shows in Israel:', error);
+    res.status(500).json({ message: 'Error fetching top shows in Israel', error: error.message });
+  }
+};
+
 // Get media details from TMDB
 exports.getMediaDetails = async (req, res) => {
   try {
