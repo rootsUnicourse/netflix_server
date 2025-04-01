@@ -260,4 +260,88 @@ exports.getMediaDetails = async (req, res) => {
     console.error('Error in getMediaDetails:', error.message);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
+};
+
+// Get AI-style recommendations from TMDB
+exports.getRecommendations = async (req, res) => {
+  try {
+    const { mediaType = 'all', limit = 10 } = req.query;
+    const apiKey = process.env.TMDB_API_KEY;
+    
+    if (!apiKey) {
+      return res.status(500).json({ message: 'TMDB API key is missing' });
+    }
+
+    // Validate mediaType
+    if (mediaType !== 'all' && mediaType !== 'movie' && mediaType !== 'tv') {
+      return res.status(400).json({ 
+        message: 'Invalid mediaType. Must be "all", "movie", or "tv"' 
+      });
+    }
+
+    // Determine which endpoint to use
+    let movies = [];
+    let tvShows = [];
+
+    if (mediaType === 'movie' || mediaType === 'all') {
+      // Get popular/trending movies
+      const moviesResponse = await axios.get(`${TMDB_BASE_URL}/trending/movie/week`, {
+        params: {
+          api_key: apiKey,
+          language: 'en-US'
+        }
+      });
+      
+      movies = moviesResponse.data.results.map(movie => ({
+        id: movie.id,
+        tmdbId: movie.id,
+        title: movie.title,
+        type: 'movie',
+        overview: movie.overview,
+        posterPath: movie.poster_path ? `${TMDB_IMAGE_BASE_URL}/w500${movie.poster_path}` : null,
+        backdropPath: movie.backdrop_path ? `${TMDB_IMAGE_BASE_URL}/original${movie.backdrop_path}` : null,
+        releaseDate: movie.release_date,
+        voteAverage: movie.vote_average,
+        popularity: movie.popularity,
+        genres: movie.genre_ids || [] // We'll keep the genre IDs for now
+      }));
+    }
+
+    if (mediaType === 'tv' || mediaType === 'all') {
+      // Get popular/trending TV shows
+      const tvResponse = await axios.get(`${TMDB_BASE_URL}/trending/tv/week`, {
+        params: {
+          api_key: apiKey,
+          language: 'en-US'
+        }
+      });
+      
+      tvShows = tvResponse.data.results.map(show => ({
+        id: show.id,
+        tmdbId: show.id,
+        title: show.name,
+        type: 'tv',
+        overview: show.overview,
+        posterPath: show.poster_path ? `${TMDB_IMAGE_BASE_URL}/w500${show.poster_path}` : null,
+        backdropPath: show.backdrop_path ? `${TMDB_IMAGE_BASE_URL}/original${show.backdrop_path}` : null,
+        releaseDate: show.first_air_date,
+        voteAverage: show.vote_average,
+        popularity: show.popularity,
+        genres: show.genre_ids || [] // We'll keep the genre IDs for now
+      }));
+    }
+
+    // Combine and sort by popularity
+    const allMedia = [...movies, ...tvShows]
+      .sort((a, b) => b.popularity - a.popularity)
+      .slice(0, parseInt(limit, 10));
+
+    res.json({
+      results: allMedia,
+      totalResults: allMedia.length
+    });
+  } catch (error) {
+    console.error('Error in getRecommendations:', error);
+    res.status(500).json({ message: 'Error fetching recommendations', error: error.message });
+  }
 }; 
