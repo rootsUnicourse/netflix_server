@@ -251,14 +251,6 @@ exports.getUserReviews = async (req, res) => {
     const userId = req.params.userId ? new mongoose.Types.ObjectId(req.params.userId) : new mongoose.Types.ObjectId(req.user.userId);
     const { page = 1, limit = 10, mediaType, profileId } = req.query;
     
-    console.log('Getting user reviews with params:', {
-      userId: userId.toString(),
-      page,
-      limit,
-      mediaType,
-      profileId
-    });
-    
     // Build query
     const query = { 
       user: userId,
@@ -269,7 +261,6 @@ exports.getUserReviews = async (req, res) => {
     // Add profileId filter if provided
     if (profileId) {
       query.profile = new mongoose.Types.ObjectId(profileId);
-      console.log(`Filtering reviews by profile ID: ${profileId}`);
     }
     
     // Filter by media type if specified
@@ -278,8 +269,6 @@ exports.getUserReviews = async (req, res) => {
       const mediaIds = await Media.find({ type: mediaType }).distinct('_id');
       query.media = { $in: mediaIds };
     }
-    
-    console.log('Final review query:', JSON.stringify(query));
     
     // Calculate pagination
     const skip = (Number(page) - 1) * Number(limit);
@@ -292,7 +281,6 @@ exports.getUserReviews = async (req, res) => {
       .populate('media', 'title posterPath backdropPath type seasons')
       .populate('user', 'emailOrPhone profiles');
     
-    console.log(`Found ${reviews.length} reviews matching query`);
     
     if (!reviews) {
       return res.status(404).json({ message: 'No reviews found' });
