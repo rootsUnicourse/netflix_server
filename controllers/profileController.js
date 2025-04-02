@@ -92,7 +92,7 @@ exports.addToWatchlist = async (req, res) => {
     console.log('Adding to watchlist - User info from token:', req.user);
     console.log('Adding to watchlist - Request body:', req.body);
     
-    const { mediaId, profileId } = req.body;
+    const { mediaId, profileId, mediaObject } = req.body;
     
     if (!mediaId || !profileId) {
       console.log('Missing required fields:', { mediaId, profileId });
@@ -120,8 +120,42 @@ exports.addToWatchlist = async (req, res) => {
       profile.watchlist = [];
     }
     
+    // Check if the media ID starts with "tmdb-" - this indicates it's from TMDB directly
+    const isTMDBMedia = mediaId.startsWith('tmdb-');
+    let finalMediaId = mediaId;
+    
+    if (isTMDBMedia && mediaObject) {
+      console.log('Processing TMDB media object:', mediaObject);
+      
+      // For TMDB media, we need to handle it differently
+      // Create a virtual media object that can be used in the watchlist
+      const TMDBWatchlistItems = require('../models/TMDBWatchlistItem');
+      
+      // Check if this TMDB item already exists
+      let tmdbItem = await TMDBWatchlistItems.findOne({ tmdbId: mediaObject.tmdbId });
+      
+      if (!tmdbItem) {
+        // Create a new document for this TMDB item
+        tmdbItem = new TMDBWatchlistItems({
+          tmdbId: mediaObject.tmdbId,
+          type: mediaObject.type,
+          title: mediaObject.title,
+          posterPath: mediaObject.posterPath,
+          backdropPath: mediaObject.backdropPath,
+          overview: mediaObject.overview,
+          tmbdFullId: mediaId // Store the full tmdb-type-id format
+        });
+        
+        await tmdbItem.save();
+        console.log('Created new TMDB watchlist item:', tmdbItem._id);
+      }
+      
+      // Use the TMDBWatchlistItem's _id as the mediaId for the watchlist
+      finalMediaId = tmdbItem._id;
+    }
+    
     // Check if media is already in watchlist to avoid duplicates
-    const isAlreadyInWatchlist = profile.watchlist.some(id => id.toString() === mediaId);
+    const isAlreadyInWatchlist = profile.watchlist.some(id => id.toString() === finalMediaId.toString());
     console.log('Media already in watchlist?', isAlreadyInWatchlist);
     
     if (isAlreadyInWatchlist) {
@@ -129,16 +163,36 @@ exports.addToWatchlist = async (req, res) => {
     }
     
     // Add to watchlist
-    profile.watchlist.push(mediaId);
+    profile.watchlist.push(finalMediaId);
     await user.save();
     
     console.log('Media added to watchlist. New watchlist size:', profile.watchlist.length);
     
     // Get the watchlist for this profile with populated media objects
     const Media = require('../models/Media');
-    const populatedWatchlist = await Media.find({
-      '_id': { $in: profile.watchlist }
-    });
+    let populatedWatchlist = [];
+    
+    if (isTMDBMedia) {
+      // For TMDB media, we need to query both regular media and TMDB watchlist items
+      const TMDBWatchlistItems = require('../models/TMDBWatchlistItem');
+      
+      // Get all watchlist IDs
+      const watchlistIds = profile.watchlist || [];
+      
+      // Query both collections
+      const [mediaItems, tmdbItems] = await Promise.all([
+        Media.find({ '_id': { $in: watchlistIds } }),
+        TMDBWatchlistItems.find({ '_id': { $in: watchlistIds } })
+      ]);
+      
+      // Combine the results
+      populatedWatchlist = [...mediaItems, ...tmdbItems];
+    } else {
+      // Traditional approach for DB media
+      populatedWatchlist = await Media.find({
+        '_id': { $in: profile.watchlist }
+      });
+    }
     
     res.status(200).json(populatedWatchlist);
   } catch (error) {
@@ -172,11 +226,25 @@ exports.removeFromWatchlist = async (req, res) => {
       return res.status(404).json({ message: 'Profile not found' });
     }
     
+    // Check if this is a TMDB ID in the format "tmdb-type-id"
+    const isTMDBFormat = mediaId.startsWith('tmdb-');
+    let finalMediaId = mediaId;
+    
+    if (isTMDBFormat) {
+      // For TMDB formatted IDs, we need to find the corresponding TMDBWatchlistItem
+      const TMDBWatchlistItems = require('../models/TMDBWatchlistItem');
+      const tmdbItem = await TMDBWatchlistItems.findOne({ tmbdFullId: mediaId });
+      
+      if (tmdbItem) {
+        // Use the TMDBWatchlistItem's _id as the mediaId for the watchlist
+        finalMediaId = tmdbItem._id.toString();
+      }
+    }
     
     // Remove from watchlist
     if (profile.watchlist) {
       const originalLength = profile.watchlist.length;
-      profile.watchlist = profile.watchlist.filter(id => id.toString() !== mediaId);
+      profile.watchlist = profile.watchlist.filter(id => id.toString() !== finalMediaId);
     }
     await user.save();
     
@@ -184,9 +252,16 @@ exports.removeFromWatchlist = async (req, res) => {
     
     // Get the watchlist for this profile with populated media objects
     const Media = require('../models/Media');
-    const populatedWatchlist = await Media.find({
-      '_id': { $in: profile.watchlist }
-    });
+    const TMDBWatchlistItems = require('../models/TMDBWatchlistItem');
+    
+    // Query both collections
+    const [mediaItems, tmdbItems] = await Promise.all([
+      Media.find({ '_id': { $in: profile.watchlist } }),
+      TMDBWatchlistItems.find({ '_id': { $in: profile.watchlist } })
+    ]);
+    
+    // Combine the results
+    const populatedWatchlist = [...mediaItems, ...tmdbItems];
     
     res.status(200).json(populatedWatchlist);
   } catch (error) {
@@ -223,12 +298,18 @@ exports.getWatchlist = async (req, res) => {
     // Get the watchlist for this profile
     const watchlistIds = profile.watchlist || [];
     
-    // Populate the media information
+    // Populate the media information from both regular media and TMDB items
     const Media = require('../models/Media');
-    const populatedWatchlist = await Media.find({
-      '_id': { $in: watchlistIds }
-    });
+    const TMDBWatchlistItems = require('../models/TMDBWatchlistItem');
     
+    // Query both collections
+    const [mediaItems, tmdbItems] = await Promise.all([
+      Media.find({ '_id': { $in: watchlistIds } }),
+      TMDBWatchlistItems.find({ '_id': { $in: watchlistIds } })
+    ]);
+    
+    // Combine the results
+    const populatedWatchlist = [...mediaItems, ...tmdbItems];
     
     res.status(200).json(populatedWatchlist);
   } catch (error) {

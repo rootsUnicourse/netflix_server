@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getPopularMedia, getMediaDetails, getRecommendations, getNewReleases, getTopShowsInIsrael, getMediaImages, getAnimationMedia, getActionMedia } = require('../controllers/tmdbController');
+const { getPopularMedia, getMediaDetails, getRecommendations, getNewReleases, getTopShowsInIsrael, getMediaImages, getAnimationMedia, getActionMedia, getTopRatedMediaByUsers } = require('../controllers/tmdbController');
 
 // Get popular media (movies and TV shows)
 router.get('/popular', getPopularMedia);
@@ -25,5 +25,8 @@ router.get('/animation', getAnimationMedia);
 
 // Get action media
 router.get('/action', getActionMedia);
+
+// Get top rated media by users (based on reviews)
+router.get('/top-rated-by-users', getTopRatedMediaByUsers);
 
 module.exports = router; 

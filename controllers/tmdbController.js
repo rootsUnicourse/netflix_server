@@ -1442,4 +1442,122 @@ exports.getActionMedia = async (req, res) => {
     console.error('Error fetching action media:', error);
     res.status(500).json({ message: 'Error fetching action media', error: error.message });
   }
+};
+
+// Get top rated media by users
+exports.getTopRatedMediaByUsers = async (req, res) => {
+  try {
+    const { limit = 15, mediaType = null } = req.query;
+    const parsedLimit = parseInt(limit);
+    const Review = require('../models/Review');
+    const mongoose = require('mongoose');
+    const axios = require('axios');
+
+    console.log('Fetching top rated media by users. Limit:', parsedLimit, 'Media type:', mediaType);
+
+    // Aggregation pipeline to get top rated media based on reviews
+    const aggregationPipeline = [
+      // Match reviews with ratings
+      { 
+        $match: { 
+          rating: { $gt: 0 },
+          ...(mediaType ? { media: new RegExp(`^tmdb-${mediaType}-`) } : { media: /^tmdb-/ })
+        } 
+      },
+      // Group by media ID to calculate average ratings and count
+      { 
+        $group: {
+          _id: '$media',
+          averageRating: { $avg: '$rating' },
+          totalReviews: { $sum: 1 }
+        }
+      },
+      // Filter to only include media with a minimum number of reviews
+      {
+        $match: {
+          totalReviews: { $gte: 1 } // At least 1 review
+        }
+      },
+      // Sort by rating (descending) and number of reviews (descending)
+      {
+        $sort: { 
+          averageRating: -1, 
+          totalReviews: -1 
+        }
+      },
+      // Limit results
+      {
+        $limit: parsedLimit
+      }
+    ];
+
+    // Execute the aggregation
+    const topRatedMedia = await Review.aggregate(aggregationPipeline);
+    
+    console.log(`Found ${topRatedMedia.length} top rated media items`);
+
+    // Fetch detailed information for each media from TMDB
+    const detailedResults = await Promise.all(
+      topRatedMedia.map(async (item) => {
+        try {
+          // Parse the TMDB ID from the media ID (format: tmdb-type-id)
+          const parts = item._id.split('-');
+          if (parts.length < 3) {
+            console.error(`Invalid TMDB ID format: ${item._id}`);
+            return null;
+          }
+
+          const type = parts[1]; // movie or tv
+          const tmdbId = parts[2];
+
+          // Fetch media details from TMDB API
+          const apiKey = process.env.TMDB_API_KEY;
+          if (!apiKey) {
+            throw new Error('TMDB API key is missing');
+          }
+
+          const tmdbResponse = await axios.get(
+            `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${apiKey}&language=en-US`
+          );
+
+          // Map TMDB data to our format
+          return {
+            _id: item._id,
+            tmdbId: parseInt(tmdbId),
+            title: type === 'movie' ? tmdbResponse.data.title : tmdbResponse.data.name,
+            type: type,
+            posterPath: `https://image.tmdb.org/t/p/w500${tmdbResponse.data.poster_path}`,
+            backdropPath: tmdbResponse.data.backdrop_path ? 
+              `https://image.tmdb.org/t/p/original${tmdbResponse.data.backdrop_path}` : null,
+            overview: tmdbResponse.data.overview,
+            releaseDate: type === 'movie' ? tmdbResponse.data.release_date : tmdbResponse.data.first_air_date,
+            voteAverage: tmdbResponse.data.vote_average,
+            voteCount: tmdbResponse.data.vote_count,
+            genres: tmdbResponse.data.genres.map(g => g.name),
+            averageRating: parseFloat(item.averageRating.toFixed(1)),
+            totalReviews: item.totalReviews
+          };
+        } catch (error) {
+          console.error(`Error fetching details for media ${item._id}:`, error.message);
+          return null;
+        }
+      })
+    );
+
+    // Filter out any failed requests
+    const results = detailedResults.filter(item => item !== null);
+    
+    console.log(`Successfully fetched details for ${results.length} out of ${topRatedMedia.length} media items`);
+
+    // Return results
+    res.json({
+      results,
+      totalResults: results.length,
+      page: 1,
+      totalPages: 1
+    });
+  } catch (error) {
+    console.error('Error in getTopRatedMediaByUsers:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
 }; 
