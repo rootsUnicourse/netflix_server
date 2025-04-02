@@ -10,6 +10,93 @@ const getTMDBImageUrl = (path, size = 'original') => {
   return `${TMDB_IMAGE_BASE_URL}/${size}${path}`;
 };
 
+// Helper function to transform TMDB movie data to our format
+const transformTMDBMovie = (movie) => {
+  return {
+    _id: `tmdb-movie-${movie.id}`,
+    tmdbId: movie.id,
+    title: movie.title,
+    type: 'movie',
+    overview: movie.overview,
+    posterPath: getTMDBImageUrl(movie.poster_path, 'w500'),
+    backdropPath: getTMDBImageUrl(movie.backdrop_path, 'original'),
+    releaseDate: movie.release_date,
+    voteAverage: movie.vote_average,
+    popularity: movie.popularity,
+    genres: movie.genres?.map(g => g.name) || [] // Use empty array if genres is undefined
+  };
+};
+
+// Helper function to transform TMDB TV show data to our format
+const transformTMDBShow = (show) => {
+  return {
+    _id: `tmdb-tv-${show.id}`,
+    tmdbId: show.id,
+    title: show.name,
+    type: 'tv',
+    overview: show.overview,
+    posterPath: getTMDBImageUrl(show.poster_path, 'w500'),
+    backdropPath: getTMDBImageUrl(show.backdrop_path, 'original'),
+    releaseDate: show.first_air_date,
+    voteAverage: show.vote_average,
+    popularity: show.popularity,
+    genres: show.genres?.map(g => g.name) || [] // Use empty array if genres is undefined
+  };
+};
+
+// Helper function to get genre name from TMDB genre ID
+const getGenreName = (mediaType, genreId) => {
+  // Movie genre IDs
+  const movieGenres = {
+    28: 'Action',
+    12: 'Adventure',
+    16: 'Animation',
+    35: 'Comedy',
+    80: 'Crime',
+    99: 'Documentary',
+    18: 'Drama',
+    10751: 'Family',
+    14: 'Fantasy',
+    36: 'History',
+    27: 'Horror',
+    10402: 'Music',
+    9648: 'Mystery',
+    10749: 'Romance',
+    878: 'Science Fiction',
+    10770: 'TV Movie',
+    53: 'Thriller',
+    10752: 'War',
+    37: 'Western'
+  };
+  
+  // TV show genre IDs
+  const tvGenres = {
+    10759: 'Action & Adventure',
+    16: 'Animation',
+    35: 'Comedy',
+    80: 'Crime',
+    99: 'Documentary',
+    18: 'Drama',
+    10751: 'Family',
+    10762: 'Kids',
+    9648: 'Mystery',
+    10763: 'News',
+    10764: 'Reality',
+    10765: 'Sci-Fi & Fantasy',
+    10766: 'Soap',
+    10767: 'Talk',
+    10768: 'War & Politics',
+    37: 'Western'
+  };
+  
+  // Return the genre name based on media type
+  if (mediaType === 'movie') {
+    return movieGenres[genreId] || null;
+  } else {
+    return tvGenres[genreId] || null;
+  }
+};
+
 // Get popular media (movies and TV shows)
 exports.getPopularMedia = async (req, res) => {
   try {
@@ -352,7 +439,7 @@ exports.getMediaDetails = async (req, res) => {
       }
       
       // 2. Try to get posters (excluding main)
-      if (imageOptions.length < 3 && detailsResponse.data.images && detailsResponse.data.images.posters) {
+      if (imageOptions.length < 3 && detailsResponse.data.images && details.images.posters) {
         const posters = detailsResponse.data.images.posters
           .filter(img => !excludedPaths.includes(img.file_path))
           .slice(0, 3)
@@ -1559,5 +1646,116 @@ exports.getTopRatedMediaByUsers = async (req, res) => {
   } catch (error) {
     console.error('Error in getTopRatedMediaByUsers:', error.message);
     res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Get new and popular media with pagination
+exports.getNewAndPopularMedia = async (req, res) => {
+  try {
+    const { page = 1, limit = 24, mediaType = 'all' } = req.query;
+    const numericPage = parseInt(page, 10);
+    const numericLimit = parseInt(limit, 10);
+    
+    // Get both movies and TV shows if no specific type is requested
+    if (mediaType === 'all' || mediaType === 'both') {
+      // Get both movies and shows in parallel
+      const [moviesResponse, tvShowsResponse] = await Promise.all([
+        axios.get(`${TMDB_BASE_URL}/movie/popular`, {
+          params: {
+            api_key: process.env.TMDB_API_KEY,
+            language: 'en-US',
+            page: numericPage,
+            region: 'US'
+          }
+        }),
+        axios.get(`${TMDB_BASE_URL}/tv/popular`, {
+          params: {
+            api_key: process.env.TMDB_API_KEY,
+            language: 'en-US',
+            page: numericPage,
+            region: 'US'
+          }
+        })
+      ]);
+      
+      // Transform the results, filtering out items with missing images
+      const movies = moviesResponse.data.results
+        .filter(movie => movie.poster_path && movie.backdrop_path)
+        .map(movie => ({
+          ...transformTMDBMovie(movie),
+          // Convert genre_ids to genres if needed
+          genres: movie.genre_ids 
+            ? movie.genre_ids.map(id => getGenreName('movie', id)).filter(Boolean) 
+            : []
+        }));
+      
+      const tvShows = tvShowsResponse.data.results
+        .filter(show => show.poster_path && show.backdrop_path)
+        .map(show => ({
+          ...transformTMDBShow(show),
+          // Convert genre_ids to genres if needed
+          genres: show.genre_ids 
+            ? show.genre_ids.map(id => getGenreName('tv', id)).filter(Boolean) 
+            : []
+        }));
+      
+      // Combine and sort by popularity
+      const combined = [...movies, ...tvShows].sort((a, b) => b.popularity - a.popularity);
+      const limitedResults = combined.slice(0, numericLimit);
+      
+      // Determine total pages based on TMDB's data
+      const totalPages = Math.max(
+        moviesResponse.data.total_pages,
+        tvShowsResponse.data.total_pages
+      );
+      
+      // Format response in the same structure used by our database API
+      return res.status(200).json({
+        results: limitedResults,
+        page: numericPage,
+        totalPages,
+        totalResults: moviesResponse.data.total_results + tvShowsResponse.data.total_results,
+      });
+    } else {
+      // Get only the requested media type
+      const endpoint = mediaType === 'movie' ? 'movie/popular' : 'tv/popular';
+      
+      const response = await axios.get(`${TMDB_BASE_URL}/${endpoint}`, {
+        params: {
+          api_key: process.env.TMDB_API_KEY,
+          language: 'en-US',
+          page: numericPage,
+          region: 'US'
+        }
+      });
+      
+      // Transform based on media type, filtering out items with missing images
+      const items = response.data.results
+        .filter(item => item.poster_path && item.backdrop_path);
+        
+      const transformFunction = mediaType === 'movie' ? transformTMDBMovie : transformTMDBShow;
+      
+      const results = items.map(item => {
+        const transformed = transformFunction(item);
+        // Convert genre_ids to genres if needed
+        if (item.genre_ids && item.genre_ids.length > 0) {
+          transformed.genres = item.genre_ids
+            .map(id => getGenreName(mediaType, id))
+            .filter(Boolean);
+        }
+        return transformed;
+      });
+      
+      // Format response
+      return res.status(200).json({
+        results: results.slice(0, numericLimit),
+        page: numericPage,
+        totalPages: response.data.total_pages,
+        totalResults: response.data.total_results
+      });
+    }
+  } catch (error) {
+    console.error('Error fetching new and popular media:', error);
+    res.status(500).json({ message: 'Error fetching new and popular media', error: error.message });
   }
 }; 

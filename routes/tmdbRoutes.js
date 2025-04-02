@@ -1,9 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const { getPopularMedia, getMediaDetails, getRecommendations, getNewReleases, getTopShowsInIsrael, getMediaImages, getAnimationMedia, getActionMedia, getTopRatedMediaByUsers } = require('../controllers/tmdbController');
+const { getPopularMedia, getMediaDetails, getRecommendations, getNewReleases, getTopShowsInIsrael, getMediaImages, getAnimationMedia, getActionMedia, getTopRatedMediaByUsers, getNewAndPopularMedia } = require('../controllers/tmdbController');
 
 // Get popular media (movies and TV shows)
 router.get('/popular', getPopularMedia);
+
+// Get new and popular media with pagination
+router.get('/new-and-popular', getNewAndPopularMedia);
 
 // Get detailed information for a specific media item by TMDB ID and type
 router.get('/details/:mediaType/:tmdbId', getMediaDetails);
