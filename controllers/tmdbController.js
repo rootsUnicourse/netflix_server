@@ -1770,4 +1770,300 @@ exports.getNewAndPopularMedia = async (req, res) => {
     console.error('Error fetching new and popular media:', error);
     res.status(500).json({ message: 'Error fetching new and popular media', error: error.message });
   }
+};
+
+// Get browse media with filtering options
+exports.getBrowseMedia = async (req, res) => {
+  try {
+    const { 
+      genre = 'all', 
+      language = 'all', 
+      rating = 'all', 
+      limit = 100,
+      page = 1
+    } = req.query;
+    
+    // Use the hasValidImages helper function
+    const hasValidImages = (item) => {
+      if (!item) return false;
+      
+      // Check poster_path and backdrop_path
+      const hasPosterPath = item.poster_path && 
+                           typeof item.poster_path === 'string' && 
+                           item.poster_path.trim() !== '' && 
+                           !item.poster_path.includes('placeholder');
+                           
+      const hasBackdropPath = item.backdrop_path && 
+                             typeof item.backdrop_path === 'string' && 
+                             item.backdrop_path.trim() !== '' && 
+                             !item.backdrop_path.includes('placeholder');
+                             
+      return hasPosterPath && hasBackdropPath;
+    };
+    
+    // Determine which endpoints to query based on filters
+    const promises = [];
+    
+    // Get movies from TMDB Discover API
+    const moviePromise = axios.get(`${TMDB_BASE_URL}/discover/movie`, {
+      params: {
+        api_key: process.env.TMDB_API_KEY,
+        language: 'en-US',
+        sort_by: 'popularity.desc',
+        include_adult: false,
+        page: page,
+        with_original_language: language !== 'all' ? language : undefined,
+        with_genres: genre !== 'all' ? getTMDBGenreId('movie', genre) : undefined,
+        'certification.lte': rating !== 'all' ? getTMDBCertification('movie', rating) : undefined,
+        'vote_count.gte': 50 // Ensure some minimum quality
+      }
+    });
+    
+    // Get TV shows from TMDB Discover API
+    const tvPromise = axios.get(`${TMDB_BASE_URL}/discover/tv`, {
+      params: {
+        api_key: process.env.TMDB_API_KEY,
+        language: 'en-US',
+        sort_by: 'popularity.desc',
+        include_adult: false,
+        page: page,
+        with_original_language: language !== 'all' ? language : undefined,
+        with_genres: genre !== 'all' ? getTMDBGenreId('tv', genre) : undefined,
+        'certification.lte': rating !== 'all' ? getTMDBCertification('tv', rating) : undefined,
+        'vote_count.gte': 50 // Ensure some minimum quality
+      }
+    });
+    
+    promises.push(moviePromise, tvPromise);
+    
+    // Execute both requests in parallel
+    const [movieResponse, tvResponse] = await Promise.all(promises);
+    
+    // Process movie results
+    const movies = movieResponse.data.results
+      .filter(movie => hasValidImages(movie))
+      .map(movie => ({
+        ...transformTMDBMovie(movie),
+        genres: movie.genre_ids 
+          ? movie.genre_ids.map(id => getGenreNameById('movie', id)).filter(Boolean) 
+          : []
+      }));
+    
+    // Process TV results
+    const tvShows = tvResponse.data.results
+      .filter(show => hasValidImages(show))
+      .map(show => ({
+        ...transformTMDBShow(show),
+        genres: show.genre_ids 
+          ? show.genre_ids.map(id => getGenreNameById('tv', id)).filter(Boolean) 
+          : []
+      }));
+    
+    // Combine and sort by popularity
+    const combined = [...movies, ...tvShows].sort((a, b) => b.popularity - a.popularity);
+    
+    // Calculate total pages and results
+    const totalResults = Math.min(
+      movieResponse.data.total_results + tvResponse.data.total_results,
+      10000 // TMDB has a maximum of 10,000 results (500 pages × 20 results)
+    );
+    
+    const totalPages = Math.min(
+      Math.max(movieResponse.data.total_pages, tvResponse.data.total_pages),
+      500 // TMDB has a maximum of 500 pages
+    );
+    
+    // Get the metadata for filtering options
+    const genreOptions = getGenreOptions();
+    const languageOptions = getLanguageOptions();
+    const ratingOptions = getRatingOptions();
+    
+    // Return the results
+    return res.status(200).json({
+      results: combined.slice(0, parseInt(limit, 10)),
+      page: parseInt(page, 10),
+      totalPages,
+      totalResults,
+      filters: {
+        genres: genreOptions,
+        languages: languageOptions,
+        ratings: ratingOptions
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error fetching browse media:', error);
+    res.status(500).json({ message: 'Error fetching browse media', error: error.message });
+  }
+};
+
+// Helper function to get genre ID from name
+const getTMDBGenreId = (mediaType, genreName) => {
+  const movieGenreMap = {
+    'action': 28,
+    'adventure': 12,
+    'animation': 16,
+    'comedy': 35,
+    'crime': 80,
+    'documentary': 99,
+    'drama': 18,
+    'family': 10751,
+    'fantasy': 14,
+    'history': 36,
+    'horror': 27,
+    'music': 10402,
+    'mystery': 9648,
+    'romance': 10749,
+    'science fiction': 878,
+    'sci-fi': 878,
+    'tv movie': 10770,
+    'thriller': 53,
+    'war': 10752,
+    'western': 37
+  };
+  
+  const tvGenreMap = {
+    'action & adventure': 10759,
+    'action': 10759,
+    'adventure': 10759,
+    'animation': 16,
+    'comedy': 35,
+    'crime': 80,
+    'documentary': 99,
+    'drama': 18,
+    'family': 10751,
+    'kids': 10762,
+    'mystery': 9648,
+    'news': 10763,
+    'reality': 10764,
+    'sci-fi & fantasy': 10765,
+    'science fiction': 10765,
+    'fantasy': 10765,
+    'soap': 10766,
+    'talk': 10767,
+    'war & politics': 10768,
+    'politics': 10768,
+    'western': 37
+  };
+  
+  return mediaType === 'movie' 
+    ? movieGenreMap[genreName.toLowerCase()] 
+    : tvGenreMap[genreName.toLowerCase()];
+};
+
+// Helper function to get genre name from ID
+const getGenreNameById = (mediaType, genreId) => {
+  const movieGenres = {
+    28: 'Action',
+    12: 'Adventure',
+    16: 'Animation',
+    35: 'Comedy',
+    80: 'Crime',
+    99: 'Documentary',
+    18: 'Drama',
+    10751: 'Family',
+    14: 'Fantasy',
+    36: 'History',
+    27: 'Horror',
+    10402: 'Music',
+    9648: 'Mystery',
+    10749: 'Romance',
+    878: 'Science Fiction',
+    10770: 'TV Movie',
+    53: 'Thriller',
+    10752: 'War',
+    37: 'Western'
+  };
+  
+  const tvGenres = {
+    10759: 'Action & Adventure',
+    16: 'Animation',
+    35: 'Comedy',
+    80: 'Crime',
+    99: 'Documentary',
+    18: 'Drama',
+    10751: 'Family',
+    10762: 'Kids',
+    9648: 'Mystery',
+    10763: 'News',
+    10764: 'Reality',
+    10765: 'Sci-Fi & Fantasy',
+    10766: 'Soap',
+    10767: 'Talk',
+    10768: 'War & Politics',
+    37: 'Western'
+  };
+  
+  return mediaType === 'movie' ? movieGenres[genreId] : tvGenres[genreId];
+};
+
+// Helper function to map our rating to TMDB certification
+const getTMDBCertification = (mediaType, rating) => {
+  // For simplicity, we'll return the rating as-is for now
+  // In a real implementation, you would map the ratings to TMDB certification values
+  return rating;
+};
+
+// Helper function to get genre options
+const getGenreOptions = () => {
+  return [
+    { value: 'all', label: 'All Genres' },
+    { value: 'action', label: 'Action' },
+    { value: 'adventure', label: 'Adventure' },
+    { value: 'animation', label: 'Animation' },
+    { value: 'comedy', label: 'Comedy' },
+    { value: 'crime', label: 'Crime' },
+    { value: 'documentary', label: 'Documentary' },
+    { value: 'drama', label: 'Drama' },
+    { value: 'family', label: 'Family' },
+    { value: 'fantasy', label: 'Fantasy' },
+    { value: 'history', label: 'History' },
+    { value: 'horror', label: 'Horror' },
+    { value: 'music', label: 'Music' },
+    { value: 'mystery', label: 'Mystery' },
+    { value: 'romance', label: 'Romance' },
+    { value: 'science fiction', label: 'Science Fiction' },
+    { value: 'thriller', label: 'Thriller' },
+    { value: 'war', label: 'War' },
+    { value: 'western', label: 'Western' }
+  ];
+};
+
+// Helper function to get language options
+const getLanguageOptions = () => {
+  return [
+    { value: 'all', label: 'All Languages' },
+    { value: 'en', label: 'English' },
+    { value: 'fr', label: 'French' },
+    { value: 'es', label: 'Spanish' },
+    { value: 'de', label: 'German' },
+    { value: 'it', label: 'Italian' },
+    { value: 'ja', label: 'Japanese' },
+    { value: 'ko', label: 'Korean' },
+    { value: 'zh', label: 'Chinese' },
+    { value: 'ru', label: 'Russian' },
+    { value: 'pt', label: 'Portuguese' },
+    { value: 'hi', label: 'Hindi' },
+    { value: 'ar', label: 'Arabic' },
+    { value: 'he', label: 'Hebrew' }
+  ];
+};
+
+// Helper function to get rating options
+const getRatingOptions = () => {
+  return [
+    { value: 'all', label: 'All Ratings' },
+    { value: 'G', label: 'G' },
+    { value: 'PG', label: 'PG' },
+    { value: 'PG-13', label: 'PG-13' },
+    { value: 'R', label: 'R' },
+    { value: 'NC-17', label: 'NC-17' },
+    { value: 'TV-Y', label: 'TV-Y' },
+    { value: 'TV-Y7', label: 'TV-Y7' },
+    { value: 'TV-G', label: 'TV-G' },
+    { value: 'TV-PG', label: 'TV-PG' },
+    { value: 'TV-14', label: 'TV-14' },
+    { value: 'TV-MA', label: 'TV-MA' },
+    { value: 'NR', label: 'Not Rated' }
+  ];
 }; 
