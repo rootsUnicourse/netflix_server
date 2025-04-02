@@ -1656,6 +1656,18 @@ exports.getNewAndPopularMedia = async (req, res) => {
     const numericPage = parseInt(page, 10);
     const numericLimit = parseInt(limit, 10);
     
+    // Helper function to validate image URLs
+    const hasValidImages = (item) => {
+      // Check that both poster and backdrop exist and are not null or empty
+      return item && 
+        item.poster_path && 
+        item.backdrop_path && 
+        item.poster_path.trim() !== '' && 
+        item.backdrop_path.trim() !== '' &&
+        !item.poster_path.includes('placeholder') &&
+        !item.backdrop_path.includes('placeholder');
+    };
+    
     // Get both movies and TV shows if no specific type is requested
     if (mediaType === 'all' || mediaType === 'both') {
       // Get both movies and shows in parallel
@@ -1680,7 +1692,7 @@ exports.getNewAndPopularMedia = async (req, res) => {
       
       // Transform the results, filtering out items with missing images
       const movies = moviesResponse.data.results
-        .filter(movie => movie.poster_path && movie.backdrop_path)
+        .filter(hasValidImages)
         .map(movie => ({
           ...transformTMDBMovie(movie),
           // Convert genre_ids to genres if needed
@@ -1690,7 +1702,7 @@ exports.getNewAndPopularMedia = async (req, res) => {
         }));
       
       const tvShows = tvShowsResponse.data.results
-        .filter(show => show.poster_path && show.backdrop_path)
+        .filter(hasValidImages)
         .map(show => ({
           ...transformTMDBShow(show),
           // Convert genre_ids to genres if needed
@@ -1731,7 +1743,7 @@ exports.getNewAndPopularMedia = async (req, res) => {
       
       // Transform based on media type, filtering out items with missing images
       const items = response.data.results
-        .filter(item => item.poster_path && item.backdrop_path);
+        .filter(hasValidImages);
         
       const transformFunction = mediaType === 'movie' ? transformTMDBMovie : transformTMDBShow;
       
