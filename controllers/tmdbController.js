@@ -1327,4 +1327,119 @@ exports.getAnimationMedia = async (req, res) => {
     console.error('Error fetching animation media:', error);
     res.status(500).json({ message: 'Error fetching animation media', error: error.message });
   }
+};
+
+// Get action media (movies and TV shows) from TMDB
+exports.getActionMedia = async (req, res) => {
+  try {
+    const { limit = 10, mediaType } = req.query;
+    const apiKey = process.env.TMDB_API_KEY;
+    
+    if (!apiKey) {
+      return res.status(500).json({ message: 'TMDB API key is missing' });
+    }
+
+    // Action genre IDs in TMDB
+    const ACTION_GENRE_ID = 28; // Action genre ID for movies
+    const ACTION_ADVENTURE_GENRE_ID = 10759; // Action & Adventure genre ID for TV shows
+    
+    // Arrays to store results
+    let actionMovies = [];
+    let actionTVShows = [];
+    
+    // Fetch action movies if mediaType is 'all' or 'movie'
+    if (!mediaType || mediaType === 'all' || mediaType === 'movie') {
+      try {
+        const moviesResponse = await axios.get(`${TMDB_BASE_URL}/discover/movie`, {
+          params: {
+            api_key: apiKey,
+            with_genres: ACTION_GENRE_ID,
+            language: 'en-US',
+            sort_by: 'popularity.desc',
+            include_adult: false,
+            page: 1
+          }
+        });
+        
+        actionMovies = moviesResponse.data.results
+          .filter(movie => movie.poster_path && movie.backdrop_path)
+          .map(movie => ({
+            id: movie.id,
+            tmdbId: movie.id,
+            title: movie.title,
+            type: 'movie',
+            overview: movie.overview,
+            posterPath: getTMDBImageUrl(movie.poster_path),
+            backdropPath: getTMDBImageUrl(movie.backdrop_path),
+            releaseDate: movie.release_date,
+            voteAverage: movie.vote_average,
+            genres: ['Action'] // We know it's in the Action genre
+          }));
+      } catch (error) {
+        console.error('Error fetching action movies:', error.message);
+      }
+    }
+    
+    // Fetch action TV shows if mediaType is 'all' or 'tv'
+    if (!mediaType || mediaType === 'all' || mediaType === 'tv') {
+      try {
+        const tvResponse = await axios.get(`${TMDB_BASE_URL}/discover/tv`, {
+          params: {
+            api_key: apiKey,
+            with_genres: ACTION_ADVENTURE_GENRE_ID, // Action & Adventure for TV
+            language: 'en-US',
+            sort_by: 'popularity.desc',
+            include_adult: false,
+            page: 1
+          }
+        });
+        
+        actionTVShows = tvResponse.data.results
+          .filter(show => show.poster_path && show.backdrop_path)
+          .map(show => ({
+            id: show.id,
+            tmdbId: show.id,
+            title: show.name,
+            type: 'tv',
+            overview: show.overview,
+            posterPath: getTMDBImageUrl(show.poster_path),
+            backdropPath: getTMDBImageUrl(show.backdrop_path),
+            releaseDate: show.first_air_date,
+            voteAverage: show.vote_average,
+            genres: ['Action & Adventure'] // We know it's in the Action & Adventure genre
+          }));
+      } catch (error) {
+        console.error('Error fetching action TV shows:', error.message);
+      }
+    }
+    
+    // Combine results based on mediaType
+    let combinedResults = [];
+    if (!mediaType || mediaType === 'all') {
+      // For 'all', we want a mix of movies and TV shows
+      // Interleave results to get a good mix
+      const maxItems = Math.max(actionMovies.length, actionTVShows.length);
+      for (let i = 0; i < maxItems; i++) {
+        if (i < actionMovies.length) combinedResults.push(actionMovies[i]);
+        if (i < actionTVShows.length) combinedResults.push(actionTVShows[i]);
+      }
+    } else if (mediaType === 'movie') {
+      combinedResults = actionMovies;
+    } else if (mediaType === 'tv') {
+      combinedResults = actionTVShows;
+    }
+    
+    // Sort by popularity (using vote average as a proxy) and limit results
+    const results = combinedResults
+      .sort((a, b) => b.voteAverage - a.voteAverage)
+      .slice(0, parseInt(limit, 10));
+    
+    res.json({
+      results,
+      totalResults: results.length
+    });
+  } catch (error) {
+    console.error('Error fetching action media:', error);
+    res.status(500).json({ message: 'Error fetching action media', error: error.message });
+  }
 }; 
