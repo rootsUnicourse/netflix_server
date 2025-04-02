@@ -13,8 +13,7 @@ const ReviewSchema = new Schema({
     required: true
   },
   media: {
-    type: Schema.Types.ObjectId,
-    ref: 'Media',
+    type: Schema.Types.Mixed, // Changed from ObjectId to Mixed to allow string IDs for TMDB content
     required: true
   },
   rating: {
@@ -56,13 +55,25 @@ ReviewSchema.index({ isPublic: 1 }); // Public vs private reviews
 // Static method to get average rating for a media item
 ReviewSchema.statics.getAverageRating = async function(mediaId) {
   try {
-    // Convert mediaId to ObjectId if it's not already
-    const mediaObjectId = new mongoose.Types.ObjectId(mediaId);
+    // Check if mediaId is a string that's not a valid ObjectId (like a TMDB ID)
+    let mediaQuery;
+    if (typeof mediaId === 'string' && mediaId.startsWith('tmdb-')) {
+      // For TMDB-style IDs, use the string directly
+      mediaQuery = mediaId;
+    } else {
+      // For ObjectId-compatible IDs, convert to ObjectId
+      try {
+        mediaQuery = new mongoose.Types.ObjectId(mediaId);
+      } catch (err) {
+        // If conversion fails, use the string directly
+        mediaQuery = mediaId;
+      }
+    }
     
     const result = await this.aggregate([
       {
         $match: { 
-          media: mediaObjectId,
+          media: mediaQuery,
           rating: { $gt: 0 } // Only include actual ratings (not 0)
         }
       },
@@ -124,7 +135,10 @@ ReviewSchema.statics.getTopRatedMedia = async function(limit = 10, mediaType = n
       }
     },
     {
-      $unwind: '$mediaData'
+      $unwind: {
+        path: '$mediaData',
+        preserveNullAndEmptyArrays: true // Keep TMDB entries that don't have DB entries
+      }
     },
     {
       $match: match

@@ -2,60 +2,57 @@ const Review = require('../models/Review');
 const Media = require('../models/Media');
 const mongoose = require('mongoose');
 const User = require('../models/User');
+const ApiService = require('../services/apiService');
 
 // Helper function to update media ratings
 const updateMediaRatings = async (mediaId) => {
   try {
-    // Get average rating from reviews
-    const ratingData = await Review.getAverageRating(mediaId);
+    // Skip updating ratings for TMDB media (they're not in our Media collection)
+    if (typeof mediaId === 'string' && mediaId.startsWith('tmdb-')) {
+      return;
+    }
     
-    // Update the media with the new rating data
+    const stats = await Review.getAverageRating(mediaId);
+    
     await Media.findByIdAndUpdate(mediaId, {
-      userRating: {
-        average: ratingData.averageRating,
-        count: ratingData.totalReviews
-      }
+      userRating: stats.averageRating,
+      reviewCount: stats.totalReviews
     });
-    
-    return ratingData;
   } catch (error) {
-    console.error('Error updating media ratings:', error.message);
-    throw error;
+    console.error('Error updating media ratings:', error);
   }
 };
 
 // Create a new review
 exports.createReview = async (req, res) => {
   try {
-    const { mediaId, profileId, rating, content, isPublic, spoiler } = req.body;
-    
-    if (!mediaId || !content) {
-      return res.status(400).json({ message: 'Media ID and content are required' });
+    const { userId, profileId, mediaId, rating, content, isPublic, spoiler } = req.body;
+
+    // Validate media exists (only for DB media, not TMDB)
+    if (!mediaId.startsWith('tmdb-')) {
+      try {
+        const mediaObjectId = new mongoose.Types.ObjectId(mediaId);
+        const mediaExists = await Media.findById(mediaObjectId);
+        if (!mediaExists) {
+          return res.status(404).json({ message: 'Media not found' });
+        }
+      } catch (error) {
+        return res.status(400).json({ message: 'Invalid media ID' });
+      }
     }
-    
-    // Check if media exists
-    const media = await Media.findById(mediaId);
-    if (!media) {
-      return res.status(404).json({ message: 'Media not found' });
-    }
-    
-    // Convert userId to ObjectId
-    const userId = new mongoose.Types.ObjectId(req.user.userId);
-    
-    // Check if this profile already has a review for this media
-    const existingReview = await Review.findOne({ 
-      user: userId, 
-      media: mediaId,
-      profile: profileId
+
+    // Check if user already has a review for this media
+    const existingReview = await Review.findOne({
+      user: userId,
+      profile: profileId,
+      media: mediaId
     });
-    
+
     if (existingReview) {
-      return res.status(400).json({ 
-        message: 'You have already reviewed this media with this profile. Please update your existing review instead.' 
-      });
+      return res.status(400).json({ message: 'You have already reviewed this media' });
     }
-    
-    // Create new review
+
+    // Create the review
     const review = new Review({
       user: userId,
       profile: profileId,
@@ -65,19 +62,17 @@ exports.createReview = async (req, res) => {
       isPublic: isPublic !== undefined ? isPublic : true,
       spoiler: spoiler || false
     });
-    
+
     await review.save();
-    
-    // Update media ratings
-    const averageRating = await updateMediaRatings(mediaId);
-    
-    res.status(201).json({ 
-      review,
-      averageRating: averageRating.averageRating,
-      totalReviews: averageRating.totalReviews
-    });
+
+    // Update media ratings (only for DB media)
+    if (!mediaId.startsWith('tmdb-')) {
+      await updateMediaRatings(mediaId);
+    }
+
+    res.status(201).json(review);
   } catch (error) {
-    console.error('Error in createReview:', error.message);
+    console.error('Error creating review:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -377,41 +372,34 @@ exports.updateReview = async (req, res) => {
   try {
     const { reviewId } = req.params;
     const { rating, content, isPublic, spoiler } = req.body;
-    
-    // Find the review
+
     const review = await Review.findById(reviewId);
-    
+
     if (!review) {
       return res.status(404).json({ message: 'Review not found' });
     }
-    
-    // Convert userId to ObjectId for comparison
-    const userId = new mongoose.Types.ObjectId(req.user.userId);
-    
-    // Check if user owns the review
-    if (review.user.toString() !== userId.toString()) {
-      return res.status(403).json({ message: 'You can only update your own reviews' });
+
+    // Check if user is the owner of the review
+    if (review.user.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Not authorized to update this review' });
     }
-    
+
     // Update fields
     if (rating !== undefined) review.rating = rating;
-    if (content) review.content = content;
+    if (content !== undefined) review.content = content;
     if (isPublic !== undefined) review.isPublic = isPublic;
     if (spoiler !== undefined) review.spoiler = spoiler;
-    
-    // Save updated review
+
     await review.save();
-    
-    // Update media ratings
-    const averageRating = await updateMediaRatings(review.media);
-    
-    res.status(200).json({ 
-      review,
-      averageRating: averageRating.averageRating,
-      totalReviews: averageRating.totalReviews
-    });
+
+    // Update media ratings (only for DB media)
+    if (typeof review.media !== 'string' || !review.media.startsWith('tmdb-')) {
+      await updateMediaRatings(review.media);
+    }
+
+    res.json(review);
   } catch (error) {
-    console.error('Error in updateReview:', error.message);
+    console.error('Error updating review:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -420,37 +408,29 @@ exports.updateReview = async (req, res) => {
 exports.deleteReview = async (req, res) => {
   try {
     const { reviewId } = req.params;
-    
-    // Find the review
+
     const review = await Review.findById(reviewId);
-    
+
     if (!review) {
       return res.status(404).json({ message: 'Review not found' });
     }
-    
-    // Convert userId to ObjectId for comparison
-    const userId = new mongoose.Types.ObjectId(req.user.userId);
-    
-    // Check if user owns the review or is an admin
-    if (review.user.toString() !== userId.toString() && req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'You can only delete your own reviews' });
+
+    // Check if user is the owner of the review
+    if (review.user.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Not authorized to delete this review' });
     }
-    
+
     const mediaId = review.media;
-    
-    // Delete the review
-    await Review.findByIdAndDelete(reviewId);
-    
-    // Update media ratings
-    const averageRating = await updateMediaRatings(mediaId);
-    
-    res.status(200).json({ 
-      message: 'Review deleted successfully',
-      averageRating: averageRating.averageRating,
-      totalReviews: averageRating.totalReviews
-    });
+    await review.remove();
+
+    // Update media ratings (only for DB media)
+    if (typeof mediaId !== 'string' || !mediaId.startsWith('tmdb-')) {
+      await updateMediaRatings(mediaId);
+    }
+
+    res.json({ message: 'Review deleted successfully' });
   } catch (error) {
-    console.error('Error in deleteReview:', error.message);
+    console.error('Error deleting review:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -482,12 +462,129 @@ exports.likeReview = async (req, res) => {
 exports.getTopRatedMedia = async (req, res) => {
   try {
     const { limit = 10, mediaType } = req.query;
+    const parsedLimit = parseInt(limit);
     
-    const topRated = await Review.getTopRatedMedia(Number(limit), mediaType);
-    
-    res.status(200).json(topRated);
+    const topMedia = await Review.getTopRatedMedia(parsedLimit, mediaType);
+    res.json(topMedia);
   } catch (error) {
-    console.error('Error in getTopRatedMedia:', error.message);
+    console.error('Error fetching top rated media:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Get reviews for a specific media
+exports.getReviewsByMedia = async (req, res) => {
+  try {
+    const { mediaId } = req.params;
+    const { limit = 10, offset = 0, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
+
+    // Parse limit and offset as integers
+    const parsedLimit = parseInt(limit);
+    const parsedOffset = parseInt(offset);
+    
+    // Create sort object based on parameters
+    const sort = {};
+    sort[sortBy] = sortOrder === 'asc' ? 1 : -1;
+
+    const reviews = await Review.find({ media: mediaId, isPublic: true })
+      .sort(sort)
+      .skip(parsedOffset)
+      .limit(parsedLimit)
+      .populate('profile', 'username avatar')
+      .lean();
+
+    const total = await Review.countDocuments({ media: mediaId, isPublic: true });
+
+    res.json({
+      reviews,
+      pagination: {
+        total,
+        limit: parsedLimit,
+        offset: parsedOffset,
+        hasMore: parsedOffset + parsedLimit < total
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching reviews:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Get reviews by user
+exports.getReviewsByUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { limit = 10, offset = 0 } = req.query;
+
+    // Parse limit and offset as integers
+    const parsedLimit = parseInt(limit);
+    const parsedOffset = parseInt(offset);
+
+    const reviews = await Review.find({ user: userId })
+      .sort({ createdAt: -1 })
+      .skip(parsedOffset)
+      .limit(parsedLimit)
+      .populate('profile', 'username avatar')
+      .lean();
+
+    // Populate media details for each review
+    const populatedReviews = await Promise.all(reviews.map(async (review) => {
+      // Check if this is a TMDB media ID
+      if (typeof review.media === 'string' && review.media.startsWith('tmdb-')) {
+        try {
+          // Parse the TMDB ID format: tmdb-movie-123 or tmdb-tv-456
+          const [_, type, id] = review.media.split('-');
+          
+          // Fetch media details from TMDB
+          const mediaDetails = await ApiService.getTMDBDetails(type, id);
+          
+          if (mediaDetails) {
+            return {
+              ...review,
+              mediaDetails: {
+                _id: review.media,
+                title: mediaDetails.title || mediaDetails.name,
+                type: type,
+                posterPath: mediaDetails.poster_path,
+                backdropPath: mediaDetails.backdrop_path
+              }
+            };
+          }
+        } catch (error) {
+          console.error(`Error fetching TMDB details for ${review.media}:`, error);
+        }
+      }
+      
+      // For regular DB media IDs
+      try {
+        const mediaDetails = await Media.findById(review.media).lean();
+        if (mediaDetails) {
+          return {
+            ...review,
+            mediaDetails
+          };
+        }
+      } catch (error) {
+        console.error(`Error fetching DB media details for ${review.media}:`, error);
+      }
+      
+      // Return the review without media details if we couldn't fetch them
+      return review;
+    }));
+
+    const total = await Review.countDocuments({ user: userId });
+
+    res.json({
+      reviews: populatedReviews,
+      pagination: {
+        total,
+        limit: parsedLimit,
+        offset: parsedOffset,
+        hasMore: parsedOffset + parsedLimit < total
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching user reviews:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 }; 
