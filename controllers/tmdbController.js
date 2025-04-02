@@ -324,174 +324,139 @@ exports.getMediaDetails = async (req, res) => {
       // Continue with default 'NR' rating
     }
     
-    // Get additional images
+    // Get additional images - USING DIVERSE IMAGE TYPES
     let additionalImages = [];
+    
     try {
-      // Process images if available - ensure 3 distinct images
-      // Prepare collections of all available images
-      const allAvailableImages = [];
-      
-      // 1. Add backdrops (not including the main backdrop)
-      if (detailsResponse.data.images && detailsResponse.data.images.backdrops && detailsResponse.data.images.backdrops.length > 0) {
-        const backdropImages = detailsResponse.data.images.backdrops
-          .filter(img => img.file_path !== detailsResponse.data.backdrop_path)
-          .map(img => ({
-            url: getTMDBImageUrl(img.file_path, 'w500'),
-            type: 'backdrop',
-            voteAverage: img.vote_average || 0
-          }));
-        allAvailableImages.push(...backdropImages);
-      }
-      
-      // 2. Add posters (not including the main poster)
-      if (detailsResponse.data.images && detailsResponse.data.images.posters && detailsResponse.data.images.posters.length > 0) {
-        const posterImages = detailsResponse.data.images.posters
-          .filter(img => img.file_path !== detailsResponse.data.poster_path)
-          .map(img => ({
-            url: getTMDBImageUrl(img.file_path, 'w500'),
-            type: 'poster',
-            voteAverage: img.vote_average || 0
-          }));
-        allAvailableImages.push(...posterImages);
-      }
-      
-      // 3. For TV shows, add season stills
-      if (mediaType === 'tv') {
-        try {
-          const seasonStillsUrl = `${TMDB_BASE_URL}/tv/${tmdbId}/season/1/images`;
-          const seasonStillsResponse = await axios.get(seasonStillsUrl, {
-            params: { api_key: TMDB_API_KEY }
-          });
-          
-          if (seasonStillsResponse.data && seasonStillsResponse.data.stills) {
-            const stillImages = seasonStillsResponse.data.stills
-              .map(img => ({
-                url: getTMDBImageUrl(img.file_path, 'w500'),
-                type: 'still',
-                voteAverage: img.vote_average || 0
-              }));
-            allAvailableImages.push(...stillImages);
-          }
-        } catch (error) {
-          console.error(`Error fetching season stills for ${tmdbId}:`, error.message);
-        }
-      }
-      
-      // Sort all available images by vote average (higher votes first)
-      allAvailableImages.sort((a, b) => b.voteAverage - a.voteAverage);
-      
-      // 4. Add primary images to ensure we always have at least these
+      // Get the main backdrop and poster URLs to exclude them
       const mainBackdropUrl = getTMDBImageUrl(detailsResponse.data.backdrop_path, 'w500');
       const mainPosterUrl = getTMDBImageUrl(detailsResponse.data.poster_path, 'w500');
       
-      // Create array of primary URLs to check against
-      const primaryUrls = [mainBackdropUrl, mainPosterUrl].filter(Boolean);
+      // Identify which images to exclude
+      const excludedPaths = [
+        detailsResponse.data.backdrop_path,
+        detailsResponse.data.poster_path
+      ].filter(Boolean);
       
-      // Strategy: Select a diverse set of images (prefer one of each type if available)
-      // First try to get one backdrop, one poster, and one still for maximum diversity
-      const typeTargets = ['backdrop', 'poster', 'still'];
-      for (const targetType of typeTargets) {
-        if (additionalImages.length >= 3) break;
-        
-        const typeImage = allAvailableImages.find(img => 
-          img.type === targetType && 
-          !additionalImages.includes(img.url) && 
-          !primaryUrls.includes(img.url)
-        );
-        
-        if (typeImage) {
-          additionalImages.push(typeImage.url);
-        }
-      }
+      // Array to collect different types of images
+      const imageOptions = [];
       
-      // If we still need more, just get the highest voted remaining images
-      const remainingImages = allAvailableImages
-        .filter(img => !additionalImages.includes(img.url) && !primaryUrls.includes(img.url))
-        .map(img => img.url);
-      
-      while (additionalImages.length < 3 && remainingImages.length > 0) {
-        additionalImages.push(remainingImages.shift());
-      }
-      
-      // If we STILL don't have enough unique images, add primary images
-      if (additionalImages.length < 3) {
-        if (!additionalImages.includes(mainBackdropUrl) && mainBackdropUrl) {
-          additionalImages.push(mainBackdropUrl);
-        }
-        
-        if (additionalImages.length < 3 && !additionalImages.includes(mainPosterUrl) && mainPosterUrl) {
-          additionalImages.push(mainPosterUrl);
-        }
-        
-        // Last resort: duplicate the most different image we have
-        while (additionalImages.length < 3) {
-          // If we have 2 images and one is backdrop and one is poster, add a still or another image
-          // otherwise add a completely different 3rd image
-          const backdropCount = additionalImages.filter(img => img === mainBackdropUrl).length;
-          const posterCount = additionalImages.filter(img => img === mainPosterUrl).length;
+      // 1. Try to get backdrops (excluding main)
+      if (detailsResponse.data.images && detailsResponse.data.images.backdrops) {
+        const backdrops = detailsResponse.data.images.backdrops
+          .filter(img => !excludedPaths.includes(img.file_path))
+          .slice(0, 3)
+          .map(img => getTMDBImageUrl(img.file_path, 'w500'));
           
-          // Choose the image with the least occurrences
-          if (backdropCount <= posterCount && mainBackdropUrl) {
-            additionalImages.push(mainBackdropUrl);
-          } else {
-            additionalImages.push(mainPosterUrl || mainBackdropUrl);
+        imageOptions.push(...backdrops);
+      }
+      
+      // 2. Try to get posters (excluding main)
+      if (imageOptions.length < 3 && detailsResponse.data.images && detailsResponse.data.images.posters) {
+        const posters = detailsResponse.data.images.posters
+          .filter(img => !excludedPaths.includes(img.file_path))
+          .slice(0, 3)
+          .map(img => getTMDBImageUrl(img.file_path, 'w500'));
+          
+        imageOptions.push(...posters.filter(url => !imageOptions.includes(url)));
+      }
+      
+      // 3. For TV shows, try to get episode stills from season 1
+      if (mediaType === 'tv' && imageOptions.length < 3) {
+        try {
+          const seasonUrl = `${TMDB_BASE_URL}/tv/${tmdbId}/season/1/images`;
+          const seasonResponse = await axios.get(seasonUrl, {
+            params: { api_key: apiKey }
+          });
+          
+          if (seasonResponse.data && seasonResponse.data.stills) {
+            const stills = seasonResponse.data.stills
+              .slice(0, 3)
+              .map(img => getTMDBImageUrl(img.file_path, 'w500'));
+              
+            imageOptions.push(...stills.filter(url => !imageOptions.includes(url)));
+          }
+        } catch (error) {
+          console.log('Error fetching season stills:', error.message);
+        }
+      }
+      
+      // 4. Try to get logos
+      if (imageOptions.length < 3) {
+        try {
+          const imagesUrl = `${TMDB_BASE_URL}/${mediaType}/${tmdbId}/images`;
+          const imagesResponse = await axios.get(imagesUrl, {
+            params: { 
+              api_key: apiKey,
+              include_image_language: 'en,null'
+            }
+          });
+          
+          if (imagesResponse.data && imagesResponse.data.logos && imagesResponse.data.logos.length > 0) {
+            const logos = imagesResponse.data.logos
+              .slice(0, 2)
+              .map(img => getTMDBImageUrl(img.file_path, 'w500'));
+              
+            imageOptions.push(...logos.filter(url => !imageOptions.includes(url)));
+          }
+        } catch (error) {
+          console.log('Error fetching logos:', error.message);
+        }
+      }
+      
+      // If we still don't have enough, add trailer screenshots via videos endpoint
+      if (imageOptions.length < 3 && detailsResponse.data.videos && detailsResponse.data.videos.results) {
+        const trailers = detailsResponse.data.videos.results
+          .filter(video => video.site === 'YouTube' && (video.type === 'Trailer' || video.type === 'Teaser'))
+          .slice(0, 2);
+          
+        if (trailers.length > 0) {
+          trailers.forEach(trailer => {
+            const thumbnailUrl = `https://img.youtube.com/vi/${trailer.key}/hqdefault.jpg`;
+            if (!imageOptions.includes(thumbnailUrl)) {
+              imageOptions.push(thumbnailUrl);
+            }
+          });
+        }
+      }
+      
+      // Lastly, if we're still short on images, use the main backdrop and poster as fallbacks
+      if (imageOptions.length < 3) {
+        if (mainBackdropUrl && !imageOptions.includes(mainBackdropUrl)) {
+          imageOptions.push(mainBackdropUrl);
+        }
+        
+        if (imageOptions.length < 3 && mainPosterUrl && !imageOptions.includes(mainPosterUrl)) {
+          imageOptions.push(mainPosterUrl);
+        }
+      }
+      
+      // Take the first 3 unique images or fill with duplicates if needed
+      if (imageOptions.length >= 3) {
+        additionalImages = imageOptions.slice(0, 3);
+      } else {
+        // Use what we have and fill the rest with placeholders
+        additionalImages = [...imageOptions];
+        
+        // If we have at least one image, duplicate it rather than using placeholders
+        if (imageOptions.length > 0) {
+          while (additionalImages.length < 3) {
+            additionalImages.push(imageOptions[0]);
+          }
+        } else {
+          // Worst case - use placeholders
+          while (additionalImages.length < 3) {
+            additionalImages.push('https://via.placeholder.com/500x281?text=No+Image+Available');
           }
         }
       }
-      
-      // Ensure we have exactly 3 images
-      additionalImages = additionalImages.slice(0, 3);
-      
-      // Ensure we don't have all identical images
-      const uniqueUrls = [...new Set(additionalImages)];
-      if (uniqueUrls.length === 1 && (mainBackdropUrl !== mainPosterUrl) && mainPosterUrl) {
-        // If all images are identical, force at least one different image
-        additionalImages[1] = mainPosterUrl;
-      }
     } catch (error) {
-      // In case of any error, use fallback strategy
-      console.error(`Error processing images for ${mediaType} ${tmdbId}:`, error.message);
-      const backdropUrl = getTMDBImageUrl(detailsResponse.data.backdrop_path, 'w500');
-      const posterUrl = getTMDBImageUrl(detailsResponse.data.poster_path, 'w500');
-      
-      if (backdropUrl && posterUrl && backdropUrl !== posterUrl) {
-        // If we have both backdrop and poster and they're different, use them
-        additionalImages = [backdropUrl, posterUrl, backdropUrl];
-      } else if (backdropUrl) {
-        // If we only have backdrop or they're the same, make small variations
-        additionalImages = [
-          backdropUrl,
-          backdropUrl,
-          backdropUrl
-        ];
-      } else if (posterUrl) {
-        // If we only have poster, use it
-        additionalImages = [
-          posterUrl,
-          posterUrl,
-          posterUrl
-        ];
-      } else {
-        // Worst case: use placeholder images (shouldn't happen with our filtering)
-        additionalImages = [
-          'https://via.placeholder.com/500x281?text=No+Image+Available',
-          'https://via.placeholder.com/500x281?text=No+Image+Available',
-          'https://via.placeholder.com/500x281?text=No+Image+Available'
-        ];
-      }
-    }
-    
-    // Double-check that we have exactly 3 images before continuing
-    if (additionalImages.length !== 3) {
-      // Fill or trim as needed
-      const backdropUrl = getTMDBImageUrl(detailsResponse.data.backdrop_path, 'w500') || 
-                         getTMDBImageUrl(detailsResponse.data.poster_path, 'w500') ||
-                         'https://via.placeholder.com/500x281?text=No+Image+Available';
-      
-      while (additionalImages.length < 3) {
-        additionalImages.push(backdropUrl);
-      }
-      additionalImages = additionalImages.slice(0, 3);
+      console.error('Error fetching additional images:', error.message);
+      // Use fallback images if needed
+      const fallbackImage = getTMDBImageUrl(detailsResponse.data.backdrop_path, 'w500') || 
+                           getTMDBImageUrl(detailsResponse.data.poster_path, 'w500') ||
+                           'https://via.placeholder.com/500x281?text=No+Image+Available';
+      additionalImages = [fallbackImage, fallbackImage, fallbackImage];
     }
     
     let result = {
@@ -1079,5 +1044,173 @@ exports.getNewReleases = async (req, res) => {
   } catch (error) {
     console.error('Error fetching new releases:', error);
     res.status(500).json({ message: 'Error fetching new releases' });
+  }
+};
+
+// Get additional images for a media item
+exports.getMediaImages = async (req, res) => {
+  try {
+    const { mediaType, tmdbId } = req.params;
+    const { limit = 10, types = 'all' } = req.query;
+    
+    if (!tmdbId || !mediaType || (mediaType !== 'movie' && mediaType !== 'tv')) {
+      return res.status(400).json({ message: 'Invalid parameters. Required: tmdbId and mediaType (movie or tv)' });
+    }
+    
+    const apiKey = process.env.TMDB_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ message: 'TMDB API key is missing' });
+    }
+
+    // Array to store all images
+    const allImages = [];
+    
+    // Get images from main endpoint - includes backdrops, posters, logos
+    const imagesUrl = `${TMDB_BASE_URL}/${mediaType}/${tmdbId}/images`;
+    const imagesResponse = await axios.get(imagesUrl, {
+      params: { 
+        api_key: apiKey,
+        include_image_language: 'en,null' 
+      }
+    });
+    
+    // Process backdrops
+    if ((types === 'all' || types.includes('backdrop')) && 
+        imagesResponse.data && imagesResponse.data.backdrops) {
+      const backdrops = imagesResponse.data.backdrops.map(image => ({
+        url: getTMDBImageUrl(image.file_path, 'w780'),
+        thumbnailUrl: getTMDBImageUrl(image.file_path, 'w300'),
+        type: 'backdrop',
+        width: image.width,
+        height: image.height,
+        aspectRatio: image.aspect_ratio
+      }));
+      allImages.push(...backdrops);
+    }
+    
+    // Process posters
+    if ((types === 'all' || types.includes('poster')) && 
+        imagesResponse.data && imagesResponse.data.posters) {
+      const posters = imagesResponse.data.posters.map(image => ({
+        url: getTMDBImageUrl(image.file_path, 'w780'),
+        thumbnailUrl: getTMDBImageUrl(image.file_path, 'w300'),
+        type: 'poster',
+        width: image.width,
+        height: image.height,
+        aspectRatio: image.aspect_ratio
+      }));
+      allImages.push(...posters);
+    }
+    
+    // Process logos
+    if ((types === 'all' || types.includes('logo')) && 
+        imagesResponse.data && imagesResponse.data.logos) {
+      const logos = imagesResponse.data.logos.map(image => ({
+        url: getTMDBImageUrl(image.file_path, 'w500'),
+        thumbnailUrl: getTMDBImageUrl(image.file_path, 'w300'),
+        type: 'logo',
+        width: image.width,
+        height: image.height,
+        aspectRatio: image.aspect_ratio
+      }));
+      allImages.push(...logos);
+    }
+    
+    // For TV shows, get episode stills from season 1
+    if (mediaType === 'tv' && (types === 'all' || types.includes('still'))) {
+      try {
+        const seasonUrl = `${TMDB_BASE_URL}/tv/${tmdbId}/season/1/images`;
+        const seasonResponse = await axios.get(seasonUrl, {
+          params: { api_key: apiKey }
+        });
+        
+        if (seasonResponse.data && seasonResponse.data.stills) {
+          const stills = seasonResponse.data.stills.map(image => ({
+            url: getTMDBImageUrl(image.file_path, 'w780'),
+            thumbnailUrl: getTMDBImageUrl(image.file_path, 'w300'),
+            type: 'still',
+            width: image.width,
+            height: image.height,
+            aspectRatio: image.aspect_ratio,
+            seasonNumber: 1
+          }));
+          allImages.push(...stills);
+        }
+      } catch (error) {
+        console.log('Error fetching season stills:', error.message);
+      }
+    }
+    
+    // Get videos for trailer thumbnails
+    if (types === 'all' || types.includes('video')) {
+      try {
+        const videosUrl = `${TMDB_BASE_URL}/${mediaType}/${tmdbId}/videos`;
+        const videosResponse = await axios.get(videosUrl, {
+          params: { api_key: apiKey }
+        });
+        
+        if (videosResponse.data && videosResponse.data.results) {
+          const videos = videosResponse.data.results
+            .filter(video => video.site === 'YouTube' && 
+                   (video.type === 'Trailer' || video.type === 'Teaser' || video.type === 'Clip'))
+            .map(video => ({
+              url: `https://img.youtube.com/vi/${video.key}/maxresdefault.jpg`,
+              thumbnailUrl: `https://img.youtube.com/vi/${video.key}/mqdefault.jpg`,
+              type: 'video',
+              videoId: video.key,
+              videoType: video.type,
+              videoName: video.name,
+              videoSite: video.site
+            }));
+          allImages.push(...videos);
+        }
+      } catch (error) {
+        console.log('Error fetching videos:', error.message);
+      }
+    }
+    
+    // Get movie/show details to include main backdrop and poster
+    if (types === 'all' || types.includes('main')) {
+      try {
+        const detailsUrl = `${TMDB_BASE_URL}/${mediaType}/${tmdbId}`;
+        const detailsResponse = await axios.get(detailsUrl, {
+          params: { api_key: apiKey }
+        });
+        
+        if (detailsResponse.data) {
+          if (detailsResponse.data.backdrop_path) {
+            allImages.push({
+              url: getTMDBImageUrl(detailsResponse.data.backdrop_path, 'original'),
+              thumbnailUrl: getTMDBImageUrl(detailsResponse.data.backdrop_path, 'w300'),
+              type: 'main_backdrop',
+              isPrimary: true
+            });
+          }
+          
+          if (detailsResponse.data.poster_path) {
+            allImages.push({
+              url: getTMDBImageUrl(detailsResponse.data.poster_path, 'original'),
+              thumbnailUrl: getTMDBImageUrl(detailsResponse.data.poster_path, 'w300'),
+              type: 'main_poster',
+              isPrimary: true
+            });
+          }
+        }
+      } catch (error) {
+        console.log('Error fetching main images:', error.message);
+      }
+    }
+    
+    // Return the images, limited by the requested amount
+    return res.json({
+      mediaType,
+      tmdbId,
+      totalImages: allImages.length,
+      images: allImages.slice(0, parseInt(limit, 10))
+    });
+    
+  } catch (error) {
+    console.error('Error in getMediaImages:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
 }; 
