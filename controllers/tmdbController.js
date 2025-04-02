@@ -17,13 +17,18 @@ const transformTMDBMovie = (movie) => {
     tmdbId: movie.id,
     title: movie.title,
     type: 'movie',
+    mediaType: 'movie',
     overview: movie.overview,
-    posterPath: getTMDBImageUrl(movie.poster_path, 'w500'),
-    backdropPath: getTMDBImageUrl(movie.backdrop_path, 'original'),
+    posterPath: movie.poster_path ? getTMDBImageUrl(movie.poster_path, 'w500') : null,
+    backdropPath: movie.backdrop_path ? getTMDBImageUrl(movie.backdrop_path, 'original') : null,
     releaseDate: movie.release_date,
     voteAverage: movie.vote_average,
+    voteCount: movie.vote_count,
     popularity: movie.popularity,
-    genres: movie.genres?.map(g => g.name) || [] // Use empty array if genres is undefined
+    originalLanguage: movie.original_language,
+    adult: movie.adult,
+    genres: movie.genres?.map(g => g.name) || [], // Use empty array if genres is undefined
+    maturityRating: movie.certification || (movie.adult ? 'R' : 'PG-13') // Default fallback rating
   };
 };
 
@@ -34,13 +39,17 @@ const transformTMDBShow = (show) => {
     tmdbId: show.id,
     title: show.name,
     type: 'tv',
+    mediaType: 'tv',
     overview: show.overview,
-    posterPath: getTMDBImageUrl(show.poster_path, 'w500'),
-    backdropPath: getTMDBImageUrl(show.backdrop_path, 'original'),
+    posterPath: show.poster_path ? getTMDBImageUrl(show.poster_path, 'w500') : null,
+    backdropPath: show.backdrop_path ? getTMDBImageUrl(show.backdrop_path, 'original') : null,
     releaseDate: show.first_air_date,
     voteAverage: show.vote_average,
+    voteCount: show.vote_count,
     popularity: show.popularity,
-    genres: show.genres?.map(g => g.name) || [] // Use empty array if genres is undefined
+    originalLanguage: show.original_language,
+    genres: show.genres?.map(g => g.name) || [], // Use empty array if genres is undefined
+    maturityRating: show.certification || 'TV-14' // Default fallback rating
   };
 };
 
@@ -1814,7 +1823,8 @@ exports.getBrowseMedia = async (req, res) => {
         page: page,
         with_original_language: language !== 'all' ? language : undefined,
         with_genres: genre !== 'all' ? getTMDBGenreId('movie', genre) : undefined,
-        'certification.lte': rating !== 'all' ? getTMDBCertification('movie', rating) : undefined,
+        'certification_country': rating !== 'all' ? 'US' : undefined,
+        'certification.lte': getTMDBCertification('movie', rating),
         'vote_count.gte': 50 // Ensure some minimum quality
       }
     });
@@ -1829,7 +1839,8 @@ exports.getBrowseMedia = async (req, res) => {
         page: page,
         with_original_language: language !== 'all' ? language : undefined,
         with_genres: genre !== 'all' ? getTMDBGenreId('tv', genre) : undefined,
-        'certification.lte': rating !== 'all' ? getTMDBCertification('tv', rating) : undefined,
+        'certification_country': rating !== 'all' ? 'US' : undefined, 
+        'certification': getTMDBCertification('tv', rating),
         'vote_count.gte': 50 // Ensure some minimum quality
       }
     });
@@ -1999,9 +2010,18 @@ const getGenreNameById = (mediaType, genreId) => {
 
 // Helper function to map our rating to TMDB certification
 const getTMDBCertification = (mediaType, rating) => {
-  // For simplicity, we'll return the rating as-is for now
-  // In a real implementation, you would map the ratings to TMDB certification values
-  return rating;
+  if (rating === 'all') return undefined;
+  
+  // TMDB uses different certification parameters for movies vs TV shows
+  if (mediaType === 'movie') {
+    // For movies, we use "certification.lte" with region-specific ratings
+    // In the US: G, PG, PG-13, R, NC-17
+    return rating;
+  } else {
+    // For TV, we use "certification" with region-specific ratings
+    // In the US: TV-Y, TV-Y7, TV-G, TV-PG, TV-14, TV-MA
+    return rating;
+  }
 };
 
 // Helper function to get genre options
@@ -2053,17 +2073,20 @@ const getLanguageOptions = () => {
 const getRatingOptions = () => {
   return [
     { value: 'all', label: 'All Ratings' },
+    // US Movie Ratings
     { value: 'G', label: 'G' },
     { value: 'PG', label: 'PG' },
     { value: 'PG-13', label: 'PG-13' },
     { value: 'R', label: 'R' },
     { value: 'NC-17', label: 'NC-17' },
+    // US TV Ratings
     { value: 'TV-Y', label: 'TV-Y' },
     { value: 'TV-Y7', label: 'TV-Y7' },
     { value: 'TV-G', label: 'TV-G' },
     { value: 'TV-PG', label: 'TV-PG' },
     { value: 'TV-14', label: 'TV-14' },
     { value: 'TV-MA', label: 'TV-MA' },
+    // Other
     { value: 'NR', label: 'Not Rated' }
   ];
 }; 
