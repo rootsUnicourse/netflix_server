@@ -1792,6 +1792,14 @@ exports.getBrowseMedia = async (req, res) => {
       page = 1
     } = req.query;
     
+    console.log(`Browse request - Genre: ${genre}, Language: ${language}, Rating: ${rating}, Page: ${page}`);
+    
+    // Get genre IDs for filtering
+    const movieGenreId = genre !== 'all' ? getTMDBGenreId('movie', genre) : undefined;
+    const tvGenreId = genre !== 'all' ? getTMDBGenreId('tv', genre) : undefined;
+    
+    console.log(`Mapped genre IDs - Movie: ${movieGenreId}, TV: ${tvGenreId}`);
+    
     // Use the hasValidImages helper function
     const hasValidImages = (item) => {
       if (!item) return false;
@@ -1822,7 +1830,7 @@ exports.getBrowseMedia = async (req, res) => {
         include_adult: false,
         page: page,
         with_original_language: language !== 'all' ? language : undefined,
-        with_genres: genre !== 'all' ? getTMDBGenreId('movie', genre) : undefined,
+        with_genres: movieGenreId,
         'certification_country': rating !== 'all' ? 'US' : undefined,
         'certification.lte': getTMDBCertification('movie', rating),
         'vote_count.gte': 50 // Ensure some minimum quality
@@ -1838,7 +1846,7 @@ exports.getBrowseMedia = async (req, res) => {
         include_adult: false,
         page: page,
         with_original_language: language !== 'all' ? language : undefined,
-        with_genres: genre !== 'all' ? getTMDBGenreId('tv', genre) : undefined,
+        with_genres: tvGenreId,
         'certification_country': rating !== 'all' ? 'US' : undefined, 
         'certification': getTMDBCertification('tv', rating),
         'vote_count.gte': 50 // Ensure some minimum quality
@@ -1849,6 +1857,8 @@ exports.getBrowseMedia = async (req, res) => {
     
     // Execute both requests in parallel
     const [movieResponse, tvResponse] = await Promise.all(promises);
+    
+    console.log(`TMDB Response - Movies: ${movieResponse.data.results.length}, TV Shows: ${tvResponse.data.results.length}`);
     
     // Process movie results
     const movies = movieResponse.data.results
@@ -1869,6 +1879,8 @@ exports.getBrowseMedia = async (req, res) => {
           ? show.genre_ids.map(id => getGenreNameById('tv', id)).filter(Boolean) 
           : []
       }));
+    
+    console.log(`After filtering - Movies: ${movies.length}, TV Shows: ${tvShows.length}`);
     
     // Combine and sort by popularity
     const combined = [...movies, ...tvShows].sort((a, b) => b.popularity - a.popularity);
@@ -1910,6 +1922,19 @@ exports.getBrowseMedia = async (req, res) => {
 
 // Helper function to get genre ID from name
 const getTMDBGenreId = (mediaType, genreName) => {
+  if (!genreName || typeof genreName !== 'string') return undefined;
+  
+  // Normalize the genre name: lowercase and trim
+  const normalizedGenre = genreName.toLowerCase().trim();
+  
+  // Handle common misspellings or variations
+  let searchGenre = normalizedGenre;
+  if (normalizedGenre === 'hrror' || normalizedGenre === 'horor') {
+    searchGenre = 'horror';
+  } else if (normalizedGenre === 'scifi' || normalizedGenre === 'science-fiction') {
+    searchGenre = 'science fiction';
+  }
+  
   const movieGenreMap = {
     'action': 28,
     'adventure': 12,
@@ -1954,12 +1979,13 @@ const getTMDBGenreId = (mediaType, genreName) => {
     'talk': 10767,
     'war & politics': 10768,
     'politics': 10768,
-    'western': 37
+    'western': 37,
+    'horror': 27  // Added horror explicitly for TV shows
   };
   
   return mediaType === 'movie' 
-    ? movieGenreMap[genreName.toLowerCase()] 
-    : tvGenreMap[genreName.toLowerCase()];
+    ? movieGenreMap[searchGenre] 
+    : tvGenreMap[searchGenre];
 };
 
 // Helper function to get genre name from ID
