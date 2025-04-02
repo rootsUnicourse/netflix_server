@@ -112,7 +112,7 @@ exports.getTopShowsInIsrael = async (req, res) => {
     const movies = moviesResponse.data.results
       .filter(movie => movie.poster_path && movie.backdrop_path)
       .map(movie => ({
-        _id: `movie-${movie.id}`,
+        _id: `tmdb-movie-${movie.id}`,
         tmdbId: movie.id,
         title: movie.title,
         type: 'movie',
@@ -126,7 +126,7 @@ exports.getTopShowsInIsrael = async (req, res) => {
     const tvShows = tvShowsResponse.data.results
       .filter(show => show.poster_path && show.backdrop_path)
       .map(show => ({
-        _id: `tv-${show.id}`,
+        _id: `tmdb-tv-${show.id}`,
         tmdbId: show.id,
         title: show.name,
         type: 'tv',

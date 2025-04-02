@@ -26,7 +26,14 @@ const updateMediaRatings = async (mediaId) => {
 // Create a new review
 exports.createReview = async (req, res) => {
   try {
-    const { userId, profileId, mediaId, rating, content, isPublic, spoiler } = req.body;
+    const { userId: requestUserId, profileId, mediaId, rating, content, isPublic, spoiler } = req.body;
+    
+    // Use the userId from the request body, or fall back to the userId from the JWT token
+    const userId = requestUserId || req.user.userId;
+    
+    if (!userId) {
+      return res.status(400).json({ message: 'User ID is required' });
+    }
 
     // Validate media exists (only for DB media, not TMDB)
     if (!mediaId.startsWith('tmdb-')) {
@@ -70,7 +77,10 @@ exports.createReview = async (req, res) => {
       await updateMediaRatings(mediaId);
     }
 
-    res.status(201).json(review);
+    res.status(201).json({ 
+      message: 'Review created successfully',
+      review 
+    });
   } catch (error) {
     console.error('Error creating review:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
