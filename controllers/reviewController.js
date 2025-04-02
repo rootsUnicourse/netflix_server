@@ -42,16 +42,16 @@ exports.createReview = async (req, res) => {
     }
 
     // Check if user already has a review for this media
-    const existingReview = await Review.findOne({
-      user: userId,
+    const existingReview = await Review.findOne({ 
+      user: userId, 
       profile: profileId,
       media: mediaId
     });
-
+    
     if (existingReview) {
       return res.status(400).json({ message: 'You have already reviewed this media' });
     }
-
+    
     // Create the review
     const review = new Review({
       user: userId,
@@ -62,9 +62,9 @@ exports.createReview = async (req, res) => {
       isPublic: isPublic !== undefined ? isPublic : true,
       spoiler: spoiler || false
     });
-
+    
     await review.save();
-
+    
     // Update media ratings (only for DB media)
     if (!mediaId.startsWith('tmdb-')) {
       await updateMediaRatings(mediaId);
@@ -88,10 +88,36 @@ exports.getMediaReviews = async (req, res) => {
     console.log('includeNonPublic param:', includeNonPublic, 'type:', typeof includeNonPublic);
     console.log('MediaId:', mediaId);
     
-    // Check if media exists
-    const media = await Media.findById(mediaId);
-    if (!media) {
-      return res.status(404).json({ message: 'Media not found' });
+    // Check if this is a TMDB ID (in format tmdb-type-id)
+    let mediaTitleForResponse = 'Unknown';
+    let averageRatingForResponse = 0;
+    let media = null;
+    
+    if (!mediaId.startsWith('tmdb-')) {
+      // Only check if media exists in our database for non-TMDB IDs
+      try {
+        media = await Media.findById(mediaId);
+        if (!media) {
+          return res.status(404).json({ message: 'Media not found' });
+        }
+        mediaTitleForResponse = media.title;
+        averageRatingForResponse = media.userRating?.average || 0;
+      } catch (error) {
+        console.error('Error finding media by ID:', error);
+        return res.status(400).json({ message: 'Invalid media ID format', error: error.message });
+      }
+    } else {
+      // For TMDB IDs, we don't need to verify their existence in our database
+      console.log('TMDB ID detected, skipping media existence check in database');
+      // We could optionally fetch details from TMDB API here if needed
+      
+      // Extract TMDB ID information for logging
+      const parts = mediaId.split('-');
+      if (parts.length >= 3) {
+        const mediaType = parts[1];
+        const tmdbId = parts[2];
+        console.log(`Processing TMDB ${mediaType} with ID ${tmdbId}`);
+      }
     }
     
     // Convert userId to ObjectId if user is logged in
@@ -226,7 +252,7 @@ exports.getMediaReviews = async (req, res) => {
       page: Number(page),
       totalPages: Math.ceil(total / Number(limit)),
       totalReviews: total,
-      averageRating: media.userRating.average,
+      averageRating: mediaId.startsWith('tmdb-') ? averageRatingForResponse : media?.userRating?.average || 0,
       reviews: processedReviews
     };
     
@@ -281,12 +307,48 @@ exports.getUserReviews = async (req, res) => {
       return res.status(404).json({ message: 'No reviews found' });
     }
     
+    // Process reviews to resolve TMDB media details
+    const processedReviews = await Promise.all(reviews.map(async (review) => {
+      const reviewObj = review.toObject();
+      
+      // Check if this is a TMDB ID
+      if (typeof review.media === 'string' && review.media.startsWith('tmdb-')) {
+        try {
+          // Parse the TMDB format
+          const parts = review.media.split('-');
+          if (parts.length >= 3) {
+            const mediaType = parts[1]; // movie or tv
+            const tmdbId = parts[2];
+            
+            // Fetch media details from TMDB
+            const tmdbDetails = await ApiService.getTMDBDetails(mediaType, tmdbId);
+            
+            if (tmdbDetails) {
+              // Create a media object with the required fields
+              reviewObj.media = {
+                _id: review.media,
+                title: tmdbDetails.title || tmdbDetails.name,
+                type: mediaType,
+                posterPath: `https://image.tmdb.org/t/p/w500${tmdbDetails.poster_path}`,
+                backdropPath: tmdbDetails.backdrop_path ? `https://image.tmdb.org/t/p/original${tmdbDetails.backdrop_path}` : null,
+                tmdbId: tmdbId
+              };
+            }
+          }
+        } catch (err) {
+          console.error(`Error fetching TMDB details for ${review.media}:`, err);
+        }
+      }
+      
+      return reviewObj;
+    }));
+    
     // Calculate total reviews for pagination
     const totalReviews = await Review.countDocuments(query);
     
     // Return result
     res.status(200).json({
-      results: reviews,
+      results: processedReviews,
       page: Number(page),
       limit: Number(limit),
       totalPages: Math.ceil(totalReviews / Number(limit)),
@@ -372,26 +434,26 @@ exports.updateReview = async (req, res) => {
   try {
     const { reviewId } = req.params;
     const { rating, content, isPublic, spoiler } = req.body;
-
+    
     const review = await Review.findById(reviewId);
-
+    
     if (!review) {
       return res.status(404).json({ message: 'Review not found' });
     }
-
+    
     // Check if user is the owner of the review
     if (review.user.toString() !== req.user.id) {
       return res.status(403).json({ message: 'Not authorized to update this review' });
     }
-
+    
     // Update fields
     if (rating !== undefined) review.rating = rating;
     if (content !== undefined) review.content = content;
     if (isPublic !== undefined) review.isPublic = isPublic;
     if (spoiler !== undefined) review.spoiler = spoiler;
-
+    
     await review.save();
-
+    
     // Update media ratings (only for DB media)
     if (typeof review.media !== 'string' || !review.media.startsWith('tmdb-')) {
       await updateMediaRatings(review.media);
@@ -408,18 +470,18 @@ exports.updateReview = async (req, res) => {
 exports.deleteReview = async (req, res) => {
   try {
     const { reviewId } = req.params;
-
+    
     const review = await Review.findById(reviewId);
-
+    
     if (!review) {
       return res.status(404).json({ message: 'Review not found' });
     }
-
+    
     // Check if user is the owner of the review
     if (review.user.toString() !== req.user.id) {
       return res.status(403).json({ message: 'Not authorized to delete this review' });
     }
-
+    
     const mediaId = review.media;
     await review.remove();
 

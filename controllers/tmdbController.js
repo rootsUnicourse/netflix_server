@@ -443,7 +443,7 @@ exports.getMediaDetails = async (req, res) => {
           while (additionalImages.length < 3) {
             additionalImages.push(imageOptions[0]);
           }
-        } else {
+      } else {
           // Worst case - use placeholders
           while (additionalImages.length < 3) {
             additionalImages.push('https://via.placeholder.com/500x281?text=No+Image+Available');
@@ -454,8 +454,8 @@ exports.getMediaDetails = async (req, res) => {
       console.error('Error fetching additional images:', error.message);
       // Use fallback images if needed
       const fallbackImage = getTMDBImageUrl(detailsResponse.data.backdrop_path, 'w500') || 
-                           getTMDBImageUrl(detailsResponse.data.poster_path, 'w500') ||
-                           'https://via.placeholder.com/500x281?text=No+Image+Available';
+                         getTMDBImageUrl(detailsResponse.data.poster_path, 'w500') ||
+                         'https://via.placeholder.com/500x281?text=No+Image+Available';
       additionalImages = [fallbackImage, fallbackImage, fallbackImage];
     }
     
