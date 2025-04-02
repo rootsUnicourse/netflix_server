@@ -1213,4 +1213,118 @@ exports.getMediaImages = async (req, res) => {
     console.error('Error in getMediaImages:', error.message);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
+};
+
+// Get animation media (movies and TV shows) from TMDB
+exports.getAnimationMedia = async (req, res) => {
+  try {
+    const { limit = 10, mediaType } = req.query;
+    const apiKey = process.env.TMDB_API_KEY;
+    
+    if (!apiKey) {
+      return res.status(500).json({ message: 'TMDB API key is missing' });
+    }
+
+    // Animation genre IDs in TMDB
+    const ANIMATION_GENRE_ID = 16; // Animation genre ID in TMDB
+    
+    // Arrays to store results
+    let animationMovies = [];
+    let animationTVShows = [];
+    
+    // Fetch animation movies if mediaType is 'all' or 'movie'
+    if (!mediaType || mediaType === 'all' || mediaType === 'movie') {
+      try {
+        const moviesResponse = await axios.get(`${TMDB_BASE_URL}/discover/movie`, {
+          params: {
+            api_key: apiKey,
+            with_genres: ANIMATION_GENRE_ID,
+            language: 'en-US',
+            sort_by: 'popularity.desc',
+            include_adult: false,
+            page: 1
+          }
+        });
+        
+        animationMovies = moviesResponse.data.results
+          .filter(movie => movie.poster_path && movie.backdrop_path)
+          .map(movie => ({
+            id: movie.id,
+            tmdbId: movie.id,
+            title: movie.title,
+            type: 'movie',
+            overview: movie.overview,
+            posterPath: getTMDBImageUrl(movie.poster_path),
+            backdropPath: getTMDBImageUrl(movie.backdrop_path),
+            releaseDate: movie.release_date,
+            voteAverage: movie.vote_average,
+            genres: ['Animation'] // We know it's in the Animation genre
+          }));
+      } catch (error) {
+        console.error('Error fetching animation movies:', error.message);
+      }
+    }
+    
+    // Fetch animation TV shows if mediaType is 'all' or 'tv'
+    if (!mediaType || mediaType === 'all' || mediaType === 'tv') {
+      try {
+        const tvResponse = await axios.get(`${TMDB_BASE_URL}/discover/tv`, {
+          params: {
+            api_key: apiKey,
+            with_genres: ANIMATION_GENRE_ID,
+            language: 'en-US',
+            sort_by: 'popularity.desc',
+            include_adult: false,
+            page: 1
+          }
+        });
+        
+        animationTVShows = tvResponse.data.results
+          .filter(show => show.poster_path && show.backdrop_path)
+          .map(show => ({
+            id: show.id,
+            tmdbId: show.id,
+            title: show.name,
+            type: 'tv',
+            overview: show.overview,
+            posterPath: getTMDBImageUrl(show.poster_path),
+            backdropPath: getTMDBImageUrl(show.backdrop_path),
+            releaseDate: show.first_air_date,
+            voteAverage: show.vote_average,
+            genres: ['Animation'] // We know it's in the Animation genre
+          }));
+      } catch (error) {
+        console.error('Error fetching animation TV shows:', error.message);
+      }
+    }
+    
+    // Combine results based on mediaType
+    let combinedResults = [];
+    if (!mediaType || mediaType === 'all') {
+      // For 'all', we want a mix of movies and TV shows
+      // Interleave results to get a good mix
+      const maxItems = Math.max(animationMovies.length, animationTVShows.length);
+      for (let i = 0; i < maxItems; i++) {
+        if (i < animationMovies.length) combinedResults.push(animationMovies[i]);
+        if (i < animationTVShows.length) combinedResults.push(animationTVShows[i]);
+      }
+    } else if (mediaType === 'movie') {
+      combinedResults = animationMovies;
+    } else if (mediaType === 'tv') {
+      combinedResults = animationTVShows;
+    }
+    
+    // Sort by popularity (using vote average as a proxy) and limit results
+    const results = combinedResults
+      .sort((a, b) => b.voteAverage - a.voteAverage)
+      .slice(0, parseInt(limit, 10));
+    
+    res.json({
+      results,
+      totalResults: results.length
+    });
+  } catch (error) {
+    console.error('Error fetching animation media:', error);
+    res.status(500).json({ message: 'Error fetching animation media', error: error.message });
+  }
 }; 
