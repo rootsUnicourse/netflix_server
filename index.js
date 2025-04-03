@@ -10,7 +10,6 @@ const mediaRoutes = require('./routes/mediaRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const tmdbRoutes = require('./routes/tmdbRoutes');
-const tmdbService = require('./services/tmdbService');
 const { logSystemEvent } = require('./services/logService');
 
 const app = express();
@@ -46,9 +45,6 @@ mongoose
   .then(() => {
     console.log('Connected to MongoDB');
     
-    // Seed the database with initial content if needed
-    seedDatabaseOnStartup();
-    
     // Log successful DB connection
     logSystemEvent('Database connected', {
       level: 'info',
@@ -64,35 +60,6 @@ mongoose
       details: { error: err.message }
     });
   });
-
-// Function to seed the database on startup
-async function seedDatabaseOnStartup() {
-  try {
-    // Check if we need to seed the database
-    const shouldSeed = process.env.SEED_ON_STARTUP === 'true';
-    
-    if (shouldSeed) {
-      console.log('Seeding database on startup...');
-      await tmdbService.seedDatabase();
-      
-      // Log database seeding
-      logSystemEvent('Database seeded', {
-        level: 'info',
-        details: { seedOnStartup: shouldSeed }
-      });
-    } else {
-      console.log('Database seeding on startup is disabled. Set SEED_ON_STARTUP=true to enable.');
-    }
-  } catch (error) {
-    console.error('Error seeding database on startup:', error.message);
-    
-    // Log seeding error
-    logSystemEvent('Database seeding failed', {
-      level: 'error',
-      details: { error: error.message }
-    });
-  }
-}
 
 app.use('/auth', authRoutes);
 app.use('/profiles', profileRoutes);
