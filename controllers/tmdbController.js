@@ -615,8 +615,9 @@ exports.getMediaDetails = async (req, res) => {
 // Get AI-style recommendations from TMDB
 exports.getRecommendations = async (req, res) => {
   try {
-    const { mediaType = 'all', limit = 10 } = req.query;
+    const { mediaType = 'all', limit = 10, profileId } = req.query;
     const apiKey = process.env.TMDB_API_KEY;
+    const openaiApiKey = process.env.OPENAI_API_KEY;
     
     if (!apiKey) {
       return res.status(500).json({ message: 'TMDB API key is missing' });
@@ -629,66 +630,305 @@ exports.getRecommendations = async (req, res) => {
       });
     }
 
-    // Determine which endpoint to use
-    let movies = [];
-    let tvShows = [];
-
-    if (mediaType === 'movie' || mediaType === 'all') {
-      // Get popular/trending movies
-      const moviesResponse = await axios.get(`${TMDB_BASE_URL}/trending/movie/week`, {
-        params: {
-          api_key: apiKey,
-          language: 'en-US'
+    // Variables to store our recommendations
+    let recommendations = [];
+    let aiEnhancedRecommendations = false;
+    
+    // If profileId is provided, we'll use the user's watchlist to get personalized recommendations
+    if (profileId) {
+      try {
+        // Get the user from the request
+        const User = require('../models/User');
+        const TMDBWatchlistItems = require('../models/TMDBWatchlistItem');
+        
+        // Find the user by their token
+        const user = await User.findById(req.user.userId);
+        if (!user) {
+          throw new Error('User not found');
         }
-      });
-      
-      movies = moviesResponse.data.results.map(movie => ({
-        id: movie.id,
-        tmdbId: movie.id,
-        title: movie.title,
-        type: 'movie',
-        overview: movie.overview,
-        posterPath: movie.poster_path ? `${TMDB_IMAGE_BASE_URL}/w500${movie.poster_path}` : null,
-        backdropPath: movie.backdrop_path ? `${TMDB_IMAGE_BASE_URL}/original${movie.backdrop_path}` : null,
-        releaseDate: movie.release_date,
-        voteAverage: movie.vote_average,
-        popularity: movie.popularity,
-        genres: movie.genre_ids || [] // We'll keep the genre IDs for now
-      }));
-    }
-
-    if (mediaType === 'tv' || mediaType === 'all') {
-      // Get popular/trending TV shows
-      const tvResponse = await axios.get(`${TMDB_BASE_URL}/trending/tv/week`, {
-        params: {
-          api_key: apiKey,
-          language: 'en-US'
+        
+        // Find the specific profile
+        const profile = user.profiles.id(profileId);
+        if (!profile) {
+          throw new Error('Profile not found');
         }
-      });
-      
-      tvShows = tvResponse.data.results.map(show => ({
-        id: show.id,
-        tmdbId: show.id,
-        title: show.name,
-        type: 'tv',
-        overview: show.overview,
-        posterPath: show.poster_path ? `${TMDB_IMAGE_BASE_URL}/w500${show.poster_path}` : null,
-        backdropPath: show.backdrop_path ? `${TMDB_IMAGE_BASE_URL}/original${show.backdrop_path}` : null,
-        releaseDate: show.first_air_date,
-        voteAverage: show.vote_average,
-        popularity: show.popularity,
-        genres: show.genre_ids || [] // We'll keep the genre IDs for now
-      }));
-    }
+        
+        // Get the watchlist for this profile
+        const watchlistIds = profile.watchlist || [];
+        
+        // Get TMDB watchlist items
+        const tmdbItems = await TMDBWatchlistItems.find({ '_id': { $in: watchlistIds } });
+        
+        // Extract watchlist data for AI analysis
+        if (openaiApiKey && tmdbItems.length > 0) {
+          try {
+            const { OpenAI } = require('openai');
+            const openai = new OpenAI({
+              apiKey: openaiApiKey
+            });
+            
+            // Prepare watchlist data for the AI
+            const watchlistData = tmdbItems.map(item => ({
+              title: item.title,
+              type: item.type,
+              overview: item.overview,
+              tmdbId: item.tmdbId
+            }));
+            
+            // If we have at least 2 items in the watchlist, use OpenAI to analyze patterns
+            if (watchlistData.length >= 2) {
+              // Create a prompt for the AI to analyze the user's taste
+              const systemPrompt = `You are a sophisticated recommendation system that understands film and TV show preferences.
+Analyze the following items from a user's watchlist and identify patterns in genre, themes, style, era, or other relevant factors.
+Then, recommend specific movies or TV shows from TMDB that match their taste profile.`;
+              
+              const userPrompt = `Here is the user's watchlist:
+${JSON.stringify(watchlistData, null, 2)}
 
-    // Combine and sort by popularity
-    const allMedia = [...movies, ...tvShows]
-      .sort((a, b) => b.popularity - a.popularity)
+Based on these items, identify common patterns in the user's taste and recommend 10 specific movies or TV shows from TMDB that would likely appeal to them.
+Focus on ${mediaType === 'all' ? 'both movies and TV shows' : mediaType + 's'}.
+Return your recommendations as a JSON array with each item having the following structure:
+{
+  "tmdbId": number,
+  "title": string,
+  "type": "movie" or "tv",
+  "reason": brief explanation for why this matches their taste
+}`;
+
+              // Query OpenAI
+              const response = await openai.chat.completions.create({
+                model: "gpt-3.5-turbo",
+                messages: [
+                  { role: "system", content: systemPrompt },
+                  { role: "user", content: userPrompt }
+                ],
+                temperature: 0.7,
+                max_tokens: 800,
+                response_format: { type: "json_object" }
+              });
+              
+              // Parse the AI recommendations
+              const aiContent = response.choices[0].message.content;
+              let aiRecommendations = [];
+              
+              try {
+                const parsedContent = JSON.parse(aiContent);
+                if (parsedContent.recommendations && Array.isArray(parsedContent.recommendations)) {
+                  aiRecommendations = parsedContent.recommendations;
+                }
+              } catch (parseError) {
+                console.error('Error parsing AI recommendations:', parseError);
+                // Try to extract JSON if the response isn't properly formatted
+                const jsonMatch = aiContent.match(/\[[\s\S]*\]/);
+                if (jsonMatch) {
+                  try {
+                    aiRecommendations = JSON.parse(jsonMatch[0]);
+                  } catch (e) {
+                    console.error('Failed to extract JSON from AI response');
+                  }
+                }
+              }
+              
+              // Fetch detailed info for each AI-recommended item
+              if (aiRecommendations.length > 0) {
+                const aiDetailPromises = aiRecommendations.map(rec => {
+                  return axios.get(`${TMDB_BASE_URL}/${rec.type}/${rec.tmdbId}`, {
+                    params: {
+                      api_key: apiKey,
+                      language: 'en-US'
+                    }
+                  }).catch(err => {
+                    console.log(`Error getting details for ${rec.type} ${rec.tmdbId}:`, err.message);
+                    return { data: null }; // Return null on error
+                  });
+                });
+                
+                const aiDetailResponses = await Promise.all(aiDetailPromises);
+                
+                // Process AI recommendations with detailed info
+                aiDetailResponses.forEach((response, index) => {
+                  if (response.data) {
+                    const item = response.data;
+                    const aiRec = aiRecommendations[index];
+                    const mediaType = item.title ? 'movie' : 'tv';
+                    
+                    recommendations.push({
+                      id: item.id,
+                      tmdbId: item.id,
+                      title: mediaType === 'movie' ? item.title : item.name,
+                      type: mediaType,
+                      overview: item.overview,
+                      posterPath: item.poster_path ? `${TMDB_IMAGE_BASE_URL}/w500${item.poster_path}` : null,
+                      backdropPath: item.backdrop_path ? `${TMDB_IMAGE_BASE_URL}/original${item.backdrop_path}` : null,
+                      releaseDate: mediaType === 'movie' ? item.release_date : item.first_air_date,
+                      voteAverage: item.vote_average,
+                      popularity: item.popularity,
+                      genres: item.genres ? item.genres.map(g => g.name) : [],
+                      aiRecommended: true,
+                      reasonForRecommendation: aiRec.reason || "Based on your taste profile"
+                    });
+                  }
+                });
+                
+                // Mark that we have AI-enhanced recommendations
+                aiEnhancedRecommendations = recommendations.length > 0;
+              }
+            }
+          } catch (aiError) {
+            console.error('Error using OpenAI for recommendations:', aiError);
+            // Continue with standard recommendations
+          }
+        }
+        
+        // If we don't have AI recommendations, fall back to TMDB recommendations
+        if (!aiEnhancedRecommendations) {
+          // For each TMDB item in watchlist, get recommendations from TMDB API
+          const recommendationPromises = [];
+          
+          for (const item of tmdbItems) {
+            // Skip if not the requested media type
+            if (mediaType !== 'all' && item.type !== mediaType) continue;
+            
+            // Get recommendations for this item
+            const recPromise = axios.get(`${TMDB_BASE_URL}/${item.type}/${item.tmdbId}/recommendations`, {
+              params: {
+                api_key: apiKey,
+                language: 'en-US'
+              }
+            }).catch(err => {
+              console.log(`Error getting recommendations for ${item.type} ${item.tmdbId}:`, err.message);
+              return { data: { results: [] } }; // Return empty results on error
+            });
+            
+            recommendationPromises.push(recPromise);
+          }
+          
+          // Wait for all recommendation requests to complete
+          const recommendationResponses = await Promise.all(recommendationPromises);
+          
+          // Process all recommendation results
+          const allRecs = [];
+          
+          recommendationResponses.forEach(response => {
+            if (response.data && response.data.results) {
+              response.data.results.forEach(item => {
+                const mediaType = item.title ? 'movie' : 'tv';
+                
+                allRecs.push({
+                  id: item.id,
+                  tmdbId: item.id,
+                  title: mediaType === 'movie' ? item.title : item.name,
+                  type: mediaType,
+                  overview: item.overview,
+                  posterPath: item.poster_path ? `${TMDB_IMAGE_BASE_URL}/w500${item.poster_path}` : null,
+                  backdropPath: item.backdrop_path ? `${TMDB_IMAGE_BASE_URL}/original${item.backdrop_path}` : null,
+                  releaseDate: mediaType === 'movie' ? item.release_date : item.first_air_date,
+                  voteAverage: item.vote_average,
+                  popularity: item.popularity,
+                  genres: item.genre_ids ? item.genre_ids.map(id => getGenreName(mediaType, id)).filter(Boolean) : []
+                });
+              });
+            }
+          });
+          
+          // Remove duplicates by tmdbId
+          const uniqueRecs = allRecs.filter((rec, index, self) => 
+            index === self.findIndex(r => r.tmdbId === rec.tmdbId)
+          );
+          
+          // Sort by popularity
+          recommendations = uniqueRecs.sort((a, b) => b.popularity - a.popularity);
+        }
+      } catch (error) {
+        console.error('Error getting personalized recommendations:', error);
+        // Fall back to trending recommendations if there's an error
+      }
+    }
+    
+    // If we don't have enough recommendations from the watchlist, get trending to supplement
+    if (recommendations.length < parseInt(limit, 10)) {
+      // Determine which endpoint to use
+      let movies = [];
+      let tvShows = [];
+
+      if ((mediaType === 'movie' || mediaType === 'all') && (recommendations.filter(r => r.type === 'movie').length < limit / 2)) {
+        // Get popular/trending movies
+        const moviesResponse = await axios.get(`${TMDB_BASE_URL}/trending/movie/week`, {
+          params: {
+            api_key: apiKey,
+            language: 'en-US'
+          }
+        });
+        
+        movies = moviesResponse.data.results.map(movie => ({
+          id: movie.id,
+          tmdbId: movie.id,
+          title: movie.title,
+          type: 'movie',
+          overview: movie.overview,
+          posterPath: movie.poster_path ? `${TMDB_IMAGE_BASE_URL}/w500${movie.poster_path}` : null,
+          backdropPath: movie.backdrop_path ? `${TMDB_IMAGE_BASE_URL}/original${movie.backdrop_path}` : null,
+          releaseDate: movie.release_date,
+          voteAverage: movie.vote_average,
+          popularity: movie.popularity,
+          genres: movie.genre_ids ? movie.genre_ids.map(id => getGenreName('movie', id)).filter(Boolean) : []
+        }));
+      }
+
+      if ((mediaType === 'tv' || mediaType === 'all') && (recommendations.filter(r => r.type === 'tv').length < limit / 2)) {
+        // Get popular/trending TV shows
+        const tvResponse = await axios.get(`${TMDB_BASE_URL}/trending/tv/week`, {
+          params: {
+            api_key: apiKey,
+            language: 'en-US'
+          }
+        });
+        
+        tvShows = tvResponse.data.results.map(show => ({
+          id: show.id,
+          tmdbId: show.id,
+          title: show.name,
+          type: 'tv',
+          overview: show.overview,
+          posterPath: show.poster_path ? `${TMDB_IMAGE_BASE_URL}/w500${show.poster_path}` : null,
+          backdropPath: show.backdrop_path ? `${TMDB_IMAGE_BASE_URL}/original${show.backdrop_path}` : null,
+          releaseDate: show.first_air_date,
+          voteAverage: show.vote_average,
+          popularity: show.popularity,
+          genres: show.genre_ids ? show.genre_ids.map(id => getGenreName('tv', id)).filter(Boolean) : []
+        }));
+      }
+
+      // Get existing recommendation IDs to avoid duplicates
+      const existingIds = recommendations.map(item => item.tmdbId);
+      
+      // Filter out items that are already in recommendations
+      const newMovies = movies.filter(movie => !existingIds.includes(movie.tmdbId));
+      const newTvShows = tvShows.filter(show => !existingIds.includes(show.tmdbId));
+      
+      // Combine with existing recommendations
+      recommendations = [
+        ...recommendations,
+        ...newMovies,
+        ...newTvShows
+      ];
+    }
+    
+    // Final sort by popularity and limit
+    const finalResults = recommendations
+      .sort((a, b) => {
+        // Sort AI recommendations first, then by popularity
+        if (a.aiRecommended && !b.aiRecommended) return -1;
+        if (!a.aiRecommended && b.aiRecommended) return 1;
+        return b.popularity - a.popularity;
+      })
       .slice(0, parseInt(limit, 10));
 
     res.json({
-      results: allMedia,
-      totalResults: allMedia.length
+      results: finalResults,
+      totalResults: finalResults.length,
+      isPersonalized: profileId ? true : false,
+      aiEnhanced: aiEnhancedRecommendations
     });
   } catch (error) {
     console.error('Error in getRecommendations:', error);
